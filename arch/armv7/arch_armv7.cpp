@@ -1535,6 +1535,16 @@ public:
 			return "__vext";
 		case ARMV7_INTRIN_VCGT:
 			return "__vcgt";
+		case ARMV7_INTRIN_VCGT_Q:
+			return "__vcgt_q";
+		case ARMV7_INTRIN_VCLT:
+			return "__vclt";
+		case ARMV7_INTRIN_VCLT_Q:
+			return "__vclt_q";
+		case ARMV7_INTRIN_VCGE:
+			return "__vcge";
+		case ARMV7_INTRIN_VCGE_Q:
+			return "__vcge_q";
 		case ARMV7_INTRIN_VCEQ:
 			return "__vceq";
 		case ARMV7_INTRIN_VTBL:
@@ -1843,6 +1853,11 @@ public:
 			ARMV7_INTRIN_VREV64,
 			ARMV7_INTRIN_VEXT,
 			ARMV7_INTRIN_VCGT,
+			ARMV7_INTRIN_VCGT_Q,
+			ARMV7_INTRIN_VCLT,
+			ARMV7_INTRIN_VCLT_Q,
+			ARMV7_INTRIN_VCGE,
+			ARMV7_INTRIN_VCGE_Q,
 			ARMV7_INTRIN_VCEQ,
 			ARMV7_INTRIN_VTBL,
 			ARMV7_INTRIN_VTBX,
@@ -2191,7 +2206,6 @@ public:
 		case ARMV7_INTRIN_VMIN:
 		case ARMV7_INTRIN_VPMAX:
 		case ARMV7_INTRIN_VPMIN:
-		case ARMV7_INTRIN_VCGT:
 		case ARMV7_INTRIN_VHADD:
 		case ARMV7_INTRIN_VRHADD:
 			return {
@@ -2200,6 +2214,23 @@ public:
 				NameAndType("source1", Type::IntegerType(8, false)),
 				NameAndType("source2", Type::IntegerType(8, false)),
 			};
+		case ARMV7_INTRIN_VCGT:
+		case ARMV7_INTRIN_VCGT_Q:
+		case ARMV7_INTRIN_VCGE:
+		case ARMV7_INTRIN_VCGE_Q:
+		case ARMV7_INTRIN_VCLT:
+		case ARMV7_INTRIN_VCLT_Q:
+		{
+			size_t vectorSize = intrinsic == ARMV7_INTRIN_VCGE_Q || intrinsic == ARMV7_INTRIN_VCGT_Q
+				|| intrinsic == ARMV7_INTRIN_VCLT_Q ? 16 : 8;
+			return {
+				NameAndType("size", Type::IntegerType(1, false)),
+				NameAndType("is_unsigned", Type::BoolType()),
+				NameAndType("is_float", Type::BoolType()),
+				NameAndType("source1", Type::IntegerType(vectorSize, false)),
+				NameAndType("source2", Type::IntegerType(vectorSize, false)),
+			};
+		}
 		case ARMV7_INTRIN_VCEQ:
 			return {
 				NameAndType("size", Type::IntegerType(1, false)),
@@ -2568,6 +2599,8 @@ public:
 		case ARMV7_INTRIN_VREV64:
 		case ARMV7_INTRIN_VEXT:
 		case ARMV7_INTRIN_VCGT:
+		case ARMV7_INTRIN_VCGE:
+		case ARMV7_INTRIN_VCLT:
 		case ARMV7_INTRIN_VCEQ:
 		case ARMV7_INTRIN_VADD:
 		case ARMV7_INTRIN_VSUB:
@@ -2594,6 +2627,9 @@ public:
 			return { Type::IntegerType(8, false) };
 		case ARMV7_INTRIN_VABS_Q:
 		case ARMV7_INTRIN_VCVT_FIXED_Q:
+		case ARMV7_INTRIN_VCGE_Q:
+		case ARMV7_INTRIN_VCGT_Q:
+		case ARMV7_INTRIN_VCLT_Q:
 			return { Type::IntegerType(16, false) };
 		case ARMV7_INTRIN_VABAL:
 		case ARMV7_INTRIN_VABDL:

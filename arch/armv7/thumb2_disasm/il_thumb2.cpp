@@ -1678,9 +1678,9 @@ static void VectorCompareEqual(LowLevelILFunction& il, decomp_result* instr)
 		}));
 }
 
-static void VectorCompareGreaterThan(LowLevelILFunction& il, decomp_result* instr)
+static void VectorCompareOrdered(LowLevelILFunction& il, decomp_result* instr, uint32_t intrinsic, uint32_t wideIntrinsic)
 {
-	if (instr->format->operandCount < 3 || !IS_FIELD_PRESENT(instr, FIELD_esize))
+	if (instr->format->operandCount != 3 || !IS_FIELD_PRESENT(instr, FIELD_esize))
 	{
 		il.AddInstruction(il.Unimplemented());
 		return;
@@ -1688,36 +1688,30 @@ static void VectorCompareGreaterThan(LowLevelILFunction& il, decomp_result* inst
 
 	size_t regSize = GetRegisterSize(instr, 0);
 	size_t elementSize = instr->fields[FIELD_esize] / 8;
-	if (regSize == 0 || elementSize == 0)
+	uint32_t dst = GetRegisterOperand(instr, 0);
+	uint32_t src1 = GetRegisterOperand(instr, 1);
+	bool compareZero = instr->format->operands[2].type == OPERAND_FORMAT_ZERO;
+	if ((regSize != 8 && regSize != 16) || (elementSize != 1 && elementSize != 2 && elementSize != 4)
+		|| dst == REG_INVALID || src1 == REG_INVALID || GetRegisterSize(instr, 1) != regSize
+		|| (!compareZero && (GetRegisterOperand(instr, 2) == REG_INVALID || GetRegisterSize(instr, 2) != regSize)))
 	{
 		il.AddInstruction(il.Unimplemented());
 		return;
 	}
 
-	ExprId rhs;
-	if (instr->format->operands[2].type == OPERAND_FORMAT_ZERO)
-	{
-		rhs = il.Const(regSize, 0);
-	}
-	else
-	{
-		size_t rhsSize = GetRegisterSize(instr, 2);
-		if (rhsSize == 0)
-		{
-			il.AddInstruction(il.Unimplemented());
-			return;
-		}
-		rhs = il.Register(rhsSize, GetRegisterOperand(instr, 2));
-	}
-
-	bool isUnsigned = IS_FIELD_PRESENT(instr, FIELD_unsigned) && instr->fields[FIELD_unsigned] != 0;
+	bool isFloat = (instr->format->operationFlags & INSTR_FORMAT_FLAG_F32)
+		|| (IS_FIELD_PRESENT(instr, FIELD_F) && instr->fields[FIELD_F]);
+	bool isUnsigned = IS_FIELD_PRESENT(instr, FIELD_unsigned) && instr->fields[FIELD_unsigned];
+	ExprId lhs = il.Register(regSize, src1);
+	ExprId rhs = compareZero ? il.Const(regSize, 0) : ReadILOperand(il, instr, 2, regSize);
 	il.AddInstruction(il.Intrinsic(
-		{ RegisterOrFlag::Register(GetRegisterOperand(instr, 0)) },
-		ARMV7_INTRIN_VCGT,
+		{ RegisterOrFlag::Register(dst) },
+		regSize == 16 ? wideIntrinsic : intrinsic,
 		{
 			il.Const(1, elementSize * 8),
 			il.Const(1, isUnsigned ? 1 : 0),
-			il.Register(GetRegisterSize(instr, 1), GetRegisterOperand(instr, 1)),
+			il.Const(1, isFloat ? 1 : 0),
+			lhs,
 			rhs,
 		}));
 }
@@ -4021,7 +4015,13 @@ bool GetLowLevelILForNEONInstruction(Architecture* arch, LowLevelILFunction& il,
 		VectorCompareEqual(il, instr);
 		break;
 	case armv7::ARMV7_VCGT:
-		VectorCompareGreaterThan(il, instr);
+		VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCGT, ARMV7_INTRIN_VCGT_Q);
+		break;
+	case armv7::ARMV7_VCGE:
+		VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCGE, ARMV7_INTRIN_VCGE_Q);
+		break;
+	case armv7::ARMV7_VCLT:
+		VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCLT, ARMV7_INTRIN_VCLT_Q);
 		break;
 	case armv7::ARMV7_VDUP:
 		VectorDuplicate(il, instr);

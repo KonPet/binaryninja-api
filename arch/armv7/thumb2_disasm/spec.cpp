@@ -32597,7 +32597,7 @@ int vceq_register(struct decomp_request *req, struct decomp_result *res)
 	return undefined(req, res);
 }
 
-// gen_crc: C247D48E
+// gen_crc: 39879EA1
 int vcge_immediate(struct decomp_request *req, struct decomp_result *res)
 {
 	int rc = -1;
@@ -32699,8 +32699,8 @@ int vcge_immediate(struct decomp_request *req, struct decomp_result *res)
 			/* pcode: fmt_idx = (Q == '1') */
 			res->fields[FIELD_fmt_idx] = ((res->fields[FIELD_Q]) == (0x1));
 			res->fields_mask[FIELD_fmt_idx >> 6] |= 1LL << (FIELD_fmt_idx & 63);
-			/* pcode: dt = size */
-			res->fields[FIELD_dt] = res->fields[FIELD_size];
+			/* pcode: dt = size + F */
+			res->fields[FIELD_dt] = (res->fields[FIELD_size]) + (res->fields[FIELD_F]);
 			res->fields_mask[FIELD_dt >> 6] |= 1LL << (FIELD_dt & 63);
 
 			return success();

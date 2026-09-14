@@ -62,6 +62,29 @@ def vbit_expected(dst, src, mask):
 def vbsl_expected(dst, src1, src2):
     return vector_bit_select_expected(dst, src1, src2, dst)
 
+def vector_compare_expected(dst, intrinsic, size, unsigned, floating, src1, src2):
+    reg_size = 'o' if dst.startswith('q') else 'q'
+    intrinsic += '_q' if dst.startswith('q') else ''
+    lhs = f'LLIL_REG.{reg_size}({src1})' if src1 is not None else f'LLIL_CONST.{reg_size}(0x0)'
+    rhs = f'LLIL_REG.{reg_size}({src2})' if src2 is not None else f'LLIL_CONST.{reg_size}(0x0)'
+    return (
+        f'LLIL_INTRINSIC([{dst}],__{intrinsic},[LLIL_CONST.b(0x{size:X}),'
+        f'LLIL_CONST.b(0x{unsigned:X}),LLIL_CONST.b(0x{floating:X}),{lhs},{rhs}])'
+    )
+
+def vcge_expected(dst, size, unsigned, floating, src1, src2):
+    return vector_compare_expected(dst, 'vcge', size, unsigned, floating, src1, src2)
+
+def vcgt_expected(dst, size, unsigned, floating, src1, src2):
+    return vector_compare_expected(dst, 'vcgt', size, unsigned, floating, src1, src2)
+
+def vclt_expected(dst, size, unsigned, floating, src1, src2):
+    return vector_compare_expected(dst, 'vclt', size, unsigned, floating, src1, src2)
+
+def veor_expected(dst, src1, src2):
+    size = 'o' if dst.startswith('q') else 'q'
+    return f'LLIL_SET_REG.{size}({dst},LLIL_XOR.{size}(LLIL_REG.{size}({src1}),LLIL_REG.{size}({src2})))'
+
 test_cases = \
 [
     # Post-Indexed addressing (normal)
@@ -461,6 +484,42 @@ test_cases = \
     ('T', b'\xff\xff\x01\x0c', 'LLIL_INTRINSIC([d16],__vdup,[LLIL_CONST.b(0x8),LLIL_REG.q(d1),LLIL_CONST.b(0x7)])'),
     # vorr d8, d17, d16
     ('A', b'\xb0\x81\x21\xf2', 'LLIL_SET_REG.q(d8,LLIL_OR.q(LLIL_REG.q(d17),LLIL_REG.q(d16)))'),
+
+    # VEOR is a full-width XOR and does not update flags.
+    # veor d0, d1, d2
+    ('A', b'\x12\x01\x01\xf3', veor_expected('d0', 'd1', 'd2')),
+    ('T', b'\x01\xff\x12\x01', veor_expected('d0', 'd1', 'd2')),
+    # veor d31, d16, d30
+    ('A', b'\xbe\xf1\x40\xf3', veor_expected('d31', 'd16', 'd30')),
+    ('T', b'\x40\xff\xbe\xf1', veor_expected('d31', 'd16', 'd30')),
+    # veor q0, q1, q2
+    ('A', b'\x54\x01\x02\xf3', veor_expected('q0', 'q1', 'q2')),
+    ('T', b'\x02\xff\x54\x01', veor_expected('q0', 'q1', 'q2')),
+    # veor q15, q8, q14 -- all 128 bits participate in the XOR
+    ('A', b'\xfc\xe1\x40\xf3', veor_expected('q15', 'q8', 'q14')),
+    ('T', b'\x40\xff\xfc\xe1', veor_expected('q15', 'q8', 'q14')),
+    # veor d0, d0, d2 -- destination aliases the first source
+    ('A', b'\x12\x01\x00\xf3', veor_expected('d0', 'd0', 'd2')),
+    ('T', b'\x00\xff\x12\x01', veor_expected('d0', 'd0', 'd2')),
+    # veor q0, q0, q2
+    ('A', b'\x54\x01\x00\xf3', veor_expected('q0', 'q0', 'q2')),
+    ('T', b'\x00\xff\x54\x01', veor_expected('q0', 'q0', 'q2')),
+    # veor d0, d1, d0 -- destination aliases the second source
+    ('A', b'\x10\x01\x01\xf3', veor_expected('d0', 'd1', 'd0')),
+    ('T', b'\x01\xff\x10\x01', veor_expected('d0', 'd1', 'd0')),
+    # veor q0, q1, q0
+    ('A', b'\x50\x01\x02\xf3', veor_expected('q0', 'q1', 'q0')),
+    ('T', b'\x02\xff\x50\x01', veor_expected('q0', 'q1', 'q0')),
+    # veor d0, d0, d0 -- common register-zeroing idiom
+    ('A', b'\x10\x01\x00\xf3', veor_expected('d0', 'd0', 'd0')),
+    ('T', b'\x00\xff\x10\x01', veor_expected('d0', 'd0', 'd0')),
+    # veor q0, q0, q0
+    ('A', b'\x50\x01\x00\xf3', veor_expected('q0', 'q0', 'q0')),
+    ('T', b'\x00\xff\x50\x01', veor_expected('q0', 'q0', 'q0')),
+    # it eq; veoreq d31, d16, d30
+    ('T', b'\x08\xbf\x40\xff\xbe\xf1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + veor_expected('d31', 'd16', 'd30') + '; LLIL_GOTO(3)'),
+    # it ne; veorne q15, q8, q14
+    ('T', b'\x18\xbf\x40\xff\xfc\xe1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + veor_expected('q15', 'q8', 'q14') + '; LLIL_GOTO(3)'),
 
     # VBIC immediate: all six immediate-placement modes, in D and Q registers.
     # vbic.i32 d0, #0xa5
@@ -915,9 +974,178 @@ test_cases = \
     # vceq.s16 d16, d0, d13
     ('T', b'\x50\xff\x1d\x08', vector_intrinsic_expected('d16', 'vceq', 16, 0, 'd0', 'd13')),
     # vcgt.s32 d0, d19, #0
-    ('T', b'\xb9\xff\x23\x00', 'LLIL_INTRINSIC([d0],__vcgt,[LLIL_CONST.b(0x20),LLIL_CONST.b(0x0),LLIL_REG.q(d19),LLIL_CONST.q(0x0)])'),
+    ('T', b'\xb9\xff\x23\x00', vcgt_expected('d0', 32, 0, 0, 'd19', None)),
     # vcgt.u32 d10, d1, d18
-    ('T', b'\x21\xff\x22\xa3', 'LLIL_INTRINSIC([d10],__vcgt,[LLIL_CONST.b(0x20),LLIL_CONST.b(0x1),LLIL_REG.q(d1),LLIL_REG.q(d18)])'),
+    ('T', b'\x21\xff\x22\xa3', vcgt_expected('d10', 32, 1, 0, 'd1', 'd18')),
+
+    # VCLT register forms assemble as VCGT with reversed source operands.
+    # vclt.s8 d31, d16, d30
+    ('A', b'\xa0\xf3\x4e\xf2', vcgt_expected('d31', 8, 0, 0, 'd30', 'd16')),
+    ('T', b'\x4e\xef\xa0\xf3', vcgt_expected('d31', 8, 0, 0, 'd30', 'd16')),
+    # vclt.s8 q15, q8, q14
+    ('A', b'\xe0\xe3\x4c\xf2', vcgt_expected('q15', 8, 0, 0, 'q14', 'q8')),
+    ('T', b'\x4c\xef\xe0\xe3', vcgt_expected('q15', 8, 0, 0, 'q14', 'q8')),
+    # vclt.u8 d31, d16, d30
+    ('A', b'\xa0\xf3\x4e\xf3', vcgt_expected('d31', 8, 1, 0, 'd30', 'd16')),
+    ('T', b'\x4e\xff\xa0\xf3', vcgt_expected('d31', 8, 1, 0, 'd30', 'd16')),
+    # vclt.u8 q15, q8, q14
+    ('A', b'\xe0\xe3\x4c\xf3', vcgt_expected('q15', 8, 1, 0, 'q14', 'q8')),
+    ('T', b'\x4c\xff\xe0\xe3', vcgt_expected('q15', 8, 1, 0, 'q14', 'q8')),
+    # vclt.s16 d31, d16, d30
+    ('A', b'\xa0\xf3\x5e\xf2', vcgt_expected('d31', 16, 0, 0, 'd30', 'd16')),
+    ('T', b'\x5e\xef\xa0\xf3', vcgt_expected('d31', 16, 0, 0, 'd30', 'd16')),
+    # vclt.s16 q15, q8, q14
+    ('A', b'\xe0\xe3\x5c\xf2', vcgt_expected('q15', 16, 0, 0, 'q14', 'q8')),
+    ('T', b'\x5c\xef\xe0\xe3', vcgt_expected('q15', 16, 0, 0, 'q14', 'q8')),
+    # vclt.u16 d31, d16, d30
+    ('A', b'\xa0\xf3\x5e\xf3', vcgt_expected('d31', 16, 1, 0, 'd30', 'd16')),
+    ('T', b'\x5e\xff\xa0\xf3', vcgt_expected('d31', 16, 1, 0, 'd30', 'd16')),
+    # vclt.u16 q15, q8, q14
+    ('A', b'\xe0\xe3\x5c\xf3', vcgt_expected('q15', 16, 1, 0, 'q14', 'q8')),
+    ('T', b'\x5c\xff\xe0\xe3', vcgt_expected('q15', 16, 1, 0, 'q14', 'q8')),
+    # vclt.s32 d31, d16, d30
+    ('A', b'\xa0\xf3\x6e\xf2', vcgt_expected('d31', 32, 0, 0, 'd30', 'd16')),
+    ('T', b'\x6e\xef\xa0\xf3', vcgt_expected('d31', 32, 0, 0, 'd30', 'd16')),
+    # vclt.s32 q15, q8, q14
+    ('A', b'\xe0\xe3\x6c\xf2', vcgt_expected('q15', 32, 0, 0, 'q14', 'q8')),
+    ('T', b'\x6c\xef\xe0\xe3', vcgt_expected('q15', 32, 0, 0, 'q14', 'q8')),
+    # vclt.u32 d31, d16, d30
+    ('A', b'\xa0\xf3\x6e\xf3', vcgt_expected('d31', 32, 1, 0, 'd30', 'd16')),
+    ('T', b'\x6e\xff\xa0\xf3', vcgt_expected('d31', 32, 1, 0, 'd30', 'd16')),
+    # vclt.u32 q15, q8, q14
+    ('A', b'\xe0\xe3\x6c\xf3', vcgt_expected('q15', 32, 1, 0, 'q14', 'q8')),
+    ('T', b'\x6c\xff\xe0\xe3', vcgt_expected('q15', 32, 1, 0, 'q14', 'q8')),
+    # vclt.f32 d31, d16, d30 -- the canonical encoding is vcgt.f32 d31, d30, d16
+    ('A', b'\xa0\xfe\x6e\xf3', vcgt_expected('d31', 32, 0, 1, 'd30', 'd16')),
+    ('T', b'\x6e\xff\xa0\xfe', vcgt_expected('d31', 32, 0, 1, 'd30', 'd16')),
+    # vclt.f32 q15, q8, q14
+    ('A', b'\xe0\xee\x6c\xf3', vcgt_expected('q15', 32, 0, 1, 'q14', 'q8')),
+    ('T', b'\x6c\xff\xe0\xee', vcgt_expected('q15', 32, 0, 1, 'q14', 'q8')),
+    # VCLT #0 has a distinct encoding and uses its own intrinsic in source order.
+    # vclt.s8 d0, d1, #0
+    ('A', b'\x01\x02\xb1\xf3', vclt_expected('d0', 8, 0, 0, 'd1', None)),
+    ('T', b'\xb1\xff\x01\x02', vclt_expected('d0', 8, 0, 0, 'd1', None)),
+    # vclt.s8 q0, q1, #0
+    ('A', b'\x42\x02\xb1\xf3', vclt_expected('q0', 8, 0, 0, 'q1', None)),
+    ('T', b'\xb1\xff\x42\x02', vclt_expected('q0', 8, 0, 0, 'q1', None)),
+    # vclt.s16 d0, d1, #0
+    ('A', b'\x01\x02\xb5\xf3', vclt_expected('d0', 16, 0, 0, 'd1', None)),
+    ('T', b'\xb5\xff\x01\x02', vclt_expected('d0', 16, 0, 0, 'd1', None)),
+    # vclt.s16 q0, q1, #0
+    ('A', b'\x42\x02\xb5\xf3', vclt_expected('q0', 16, 0, 0, 'q1', None)),
+    ('T', b'\xb5\xff\x42\x02', vclt_expected('q0', 16, 0, 0, 'q1', None)),
+    # vclt.s32 d0, d1, #0
+    ('A', b'\x01\x02\xb9\xf3', vclt_expected('d0', 32, 0, 0, 'd1', None)),
+    ('T', b'\xb9\xff\x01\x02', vclt_expected('d0', 32, 0, 0, 'd1', None)),
+    # vclt.s32 q0, q1, #0
+    ('A', b'\x42\x02\xb9\xf3', vclt_expected('q0', 32, 0, 0, 'q1', None)),
+    ('T', b'\xb9\xff\x42\x02', vclt_expected('q0', 32, 0, 0, 'q1', None)),
+    # vclt.f32 d0, d1, #0
+    ('A', b'\x01\x06\xb9\xf3', vclt_expected('d0', 32, 0, 1, 'd1', None)),
+    ('T', b'\xb9\xff\x01\x06', vclt_expected('d0', 32, 0, 1, 'd1', None)),
+    # vclt.f32 q0, q1, #0
+    ('A', b'\x42\x06\xb9\xf3', vclt_expected('q0', 32, 0, 1, 'q1', None)),
+    ('T', b'\xb9\xff\x42\x06', vclt_expected('q0', 32, 0, 1, 'q1', None)),
+    # vclt.s32 d0, d1, d1 -- equal inputs still use strict comparison
+    ('A', b'\x01\x03\x21\xf2', vcgt_expected('d0', 32, 0, 0, 'd1', 'd1')),
+    ('T', b'\x21\xef\x01\x03', vcgt_expected('d0', 32, 0, 0, 'd1', 'd1')),
+    # vclt.f32 q0, q1, q1
+    ('A', b'\x42\x0e\x22\xf3', vcgt_expected('q0', 32, 0, 1, 'q1', 'q1')),
+    ('T', b'\x22\xff\x42\x0e', vcgt_expected('q0', 32, 0, 1, 'q1', 'q1')),
+    # it eq; vclteq.s16 d31, d16, d30
+    ('T', b'\x08\xbf\x5e\xef\xa0\xf3', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vcgt_expected('d31', 16, 0, 0, 'd30', 'd16') + '; LLIL_GOTO(3)'),
+    # it ne; vcltne.u32 q15, q8, q14
+    ('T', b'\x18\xbf\x6c\xff\xe0\xe3', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vcgt_expected('q15', 32, 1, 0, 'q14', 'q8') + '; LLIL_GOTO(3)'),
+    # it eq; vclteq.f32 q15, q8, q14
+    ('T', b'\x08\xbf\x6c\xff\xe0\xee', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vcgt_expected('q15', 32, 0, 1, 'q14', 'q8') + '; LLIL_GOTO(3)'),
+    # it ne; vcltne.s8 d0, d1, #0
+    ('T', b'\x18\xbf\xb1\xff\x01\x02', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vclt_expected('d0', 8, 0, 0, 'd1', None) + '; LLIL_GOTO(3)'),
+    # it eq; vclteq.f32 q0, q1, #0
+    ('T', b'\x08\xbf\xb9\xff\x42\x06', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vclt_expected('q0', 32, 0, 1, 'q1', None) + '; LLIL_GOTO(3)'),
+    # vcgt.f32 d0, d1, #0 -- positive comparisons retain their source order
+    ('A', b'\x01\x04\xb9\xf3', vcgt_expected('d0', 32, 0, 1, 'd1', None)),
+    # vcgt.f32 q0, q1, #0
+    ('T', b'\xb9\xff\x42\x04', vcgt_expected('q0', 32, 0, 1, 'q1', None)),
+
+    # VCGE register comparisons: signed, unsigned, and floating-point lanes in D and Q vectors.
+    # vcge.s8 d31, d16, d30
+    ('A', b'\xbe\xf3\x40\xf2', vcge_expected('d31', 8, 0, 0, 'd16', 'd30')),
+    ('T', b'\x40\xef\xbe\xf3', vcge_expected('d31', 8, 0, 0, 'd16', 'd30')),
+    # vcge.s8 q15, q8, q14
+    ('A', b'\xfc\xe3\x40\xf2', vcge_expected('q15', 8, 0, 0, 'q8', 'q14')),
+    ('T', b'\x40\xef\xfc\xe3', vcge_expected('q15', 8, 0, 0, 'q8', 'q14')),
+    # vcge.u8 d31, d16, d30
+    ('A', b'\xbe\xf3\x40\xf3', vcge_expected('d31', 8, 1, 0, 'd16', 'd30')),
+    ('T', b'\x40\xff\xbe\xf3', vcge_expected('d31', 8, 1, 0, 'd16', 'd30')),
+    # vcge.u8 q15, q8, q14
+    ('A', b'\xfc\xe3\x40\xf3', vcge_expected('q15', 8, 1, 0, 'q8', 'q14')),
+    ('T', b'\x40\xff\xfc\xe3', vcge_expected('q15', 8, 1, 0, 'q8', 'q14')),
+    # vcge.s16 d31, d16, d30
+    ('A', b'\xbe\xf3\x50\xf2', vcge_expected('d31', 16, 0, 0, 'd16', 'd30')),
+    ('T', b'\x50\xef\xbe\xf3', vcge_expected('d31', 16, 0, 0, 'd16', 'd30')),
+    # vcge.s16 q15, q8, q14
+    ('A', b'\xfc\xe3\x50\xf2', vcge_expected('q15', 16, 0, 0, 'q8', 'q14')),
+    ('T', b'\x50\xef\xfc\xe3', vcge_expected('q15', 16, 0, 0, 'q8', 'q14')),
+    # vcge.u16 d31, d16, d30
+    ('A', b'\xbe\xf3\x50\xf3', vcge_expected('d31', 16, 1, 0, 'd16', 'd30')),
+    ('T', b'\x50\xff\xbe\xf3', vcge_expected('d31', 16, 1, 0, 'd16', 'd30')),
+    # vcge.u16 q15, q8, q14
+    ('A', b'\xfc\xe3\x50\xf3', vcge_expected('q15', 16, 1, 0, 'q8', 'q14')),
+    ('T', b'\x50\xff\xfc\xe3', vcge_expected('q15', 16, 1, 0, 'q8', 'q14')),
+    # vcge.s32 d31, d16, d30
+    ('A', b'\xbe\xf3\x60\xf2', vcge_expected('d31', 32, 0, 0, 'd16', 'd30')),
+    ('T', b'\x60\xef\xbe\xf3', vcge_expected('d31', 32, 0, 0, 'd16', 'd30')),
+    # vcge.s32 q15, q8, q14
+    ('A', b'\xfc\xe3\x60\xf2', vcge_expected('q15', 32, 0, 0, 'q8', 'q14')),
+    ('T', b'\x60\xef\xfc\xe3', vcge_expected('q15', 32, 0, 0, 'q8', 'q14')),
+    # vcge.u32 d31, d16, d30
+    ('A', b'\xbe\xf3\x60\xf3', vcge_expected('d31', 32, 1, 0, 'd16', 'd30')),
+    ('T', b'\x60\xff\xbe\xf3', vcge_expected('d31', 32, 1, 0, 'd16', 'd30')),
+    # vcge.u32 q15, q8, q14
+    ('A', b'\xfc\xe3\x60\xf3', vcge_expected('q15', 32, 1, 0, 'q8', 'q14')),
+    ('T', b'\x60\xff\xfc\xe3', vcge_expected('q15', 32, 1, 0, 'q8', 'q14')),
+    # vcge.f32 d31, d16, d30 -- floating-point comparisons must be distinct from signed integers
+    ('A', b'\xae\xfe\x40\xf3', vcge_expected('d31', 32, 0, 1, 'd16', 'd30')),
+    ('T', b'\x40\xff\xae\xfe', vcge_expected('d31', 32, 0, 1, 'd16', 'd30')),
+    # vcge.f32 q15, q8, q14
+    ('A', b'\xec\xee\x40\xf3', vcge_expected('q15', 32, 0, 1, 'q8', 'q14')),
+    ('T', b'\x40\xff\xec\xee', vcge_expected('q15', 32, 0, 1, 'q8', 'q14')),
+    # vcge.s8 d0, d1, #0
+    ('A', b'\x81\x00\xb1\xf3', vcge_expected('d0', 8, 0, 0, 'd1', None)),
+    ('T', b'\xb1\xff\x81\x00', vcge_expected('d0', 8, 0, 0, 'd1', None)),
+    # vcge.s8 q0, q1, #0
+    ('A', b'\xc2\x00\xb1\xf3', vcge_expected('q0', 8, 0, 0, 'q1', None)),
+    ('T', b'\xb1\xff\xc2\x00', vcge_expected('q0', 8, 0, 0, 'q1', None)),
+    # vcge.s16 d0, d1, #0
+    ('A', b'\x81\x00\xb5\xf3', vcge_expected('d0', 16, 0, 0, 'd1', None)),
+    ('T', b'\xb5\xff\x81\x00', vcge_expected('d0', 16, 0, 0, 'd1', None)),
+    # vcge.s16 q0, q1, #0
+    ('A', b'\xc2\x00\xb5\xf3', vcge_expected('q0', 16, 0, 0, 'q1', None)),
+    ('T', b'\xb5\xff\xc2\x00', vcge_expected('q0', 16, 0, 0, 'q1', None)),
+    # vcge.s32 d0, d1, #0
+    ('A', b'\x81\x00\xb9\xf3', vcge_expected('d0', 32, 0, 0, 'd1', None)),
+    ('T', b'\xb9\xff\x81\x00', vcge_expected('d0', 32, 0, 0, 'd1', None)),
+    # vcge.s32 q0, q1, #0
+    ('A', b'\xc2\x00\xb9\xf3', vcge_expected('q0', 32, 0, 0, 'q1', None)),
+    ('T', b'\xb9\xff\xc2\x00', vcge_expected('q0', 32, 0, 0, 'q1', None)),
+    # vcge.f32 d0, d1, #0
+    ('A', b'\x81\x04\xb9\xf3', vcge_expected('d0', 32, 0, 1, 'd1', None)),
+    ('T', b'\xb9\xff\x81\x04', vcge_expected('d0', 32, 0, 1, 'd1', None)),
+    # vcge.f32 q0, q1, #0
+    ('A', b'\xc2\x04\xb9\xf3', vcge_expected('q0', 32, 0, 1, 'q1', None)),
+    ('T', b'\xb9\xff\xc2\x04', vcge_expected('q0', 32, 0, 1, 'q1', None)),
+    # vcge.s32 d0, d1, d1 -- equal integer operands are a >= comparison, not >
+    ('A', b'\x11\x03\x21\xf2', vcge_expected('d0', 32, 0, 0, 'd1', 'd1')),
+    ('T', b'\x21\xef\x11\x03', vcge_expected('d0', 32, 0, 0, 'd1', 'd1')),
+    # vcge.f32 q0, q1, q1 -- identical float operands still require floating-point semantics (NaNs)
+    ('A', b'\x42\x0e\x02\xf3', vcge_expected('q0', 32, 0, 1, 'q1', 'q1')),
+    ('T', b'\x02\xff\x42\x0e', vcge_expected('q0', 32, 0, 1, 'q1', 'q1')),
+    # it eq; vcgeeq.s16 d31, d16, d30
+    ('T', b'\x08\xbf\x50\xef\xbe\xf3', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vcge_expected('d31', 16, 0, 0, 'd16', 'd30') + '; LLIL_GOTO(3)'),
+    # it ne; vcgene.u32 q15, q8, q14
+    ('T', b'\x18\xbf\x60\xff\xfc\xe3', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vcge_expected('q15', 32, 1, 0, 'q8', 'q14') + '; LLIL_GOTO(3)'),
+    # it eq; vcgeeq.f32 q15, q8, q14
+    ('T', b'\x08\xbf\x40\xff\xec\xee', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vcge_expected('q15', 32, 0, 1, 'q8', 'q14') + '; LLIL_GOTO(3)'),
     # vtbl.8 d0, {d5}, d4
     ('T', b'\xb5\xff\x04\x08', 'LLIL_INTRINSIC([d0],__vtbl,[LLIL_CONST.b(0x1),LLIL_REG.q(d5),LLIL_CONST.q(0x0),LLIL_CONST.q(0x0),LLIL_CONST.q(0x0),LLIL_REG.q(d4)])'),
     # vshl.u16 d0, d0, d1
@@ -1088,6 +1316,15 @@ info_test_cases = [
     ('T', b'\x08\xbf\x00\xf0\x04\xf8\x06\xd0', 6, [('CallDestination', 14)], False),
 ]
 
+intrinsic_test_cases = [
+    ('__vclt', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 8), ('source2', 8)], [8]),
+    ('__vclt_q', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 16), ('source2', 16)], [16]),
+    ('__vcgt', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 8), ('source2', 8)], [8]),
+    ('__vcgt_q', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 16), ('source2', 16)], [16]),
+    ('__vcge', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 8), ('source2', 8)], [8]),
+    ('__vcge_q', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 16), ('source2', 16)], [16]),
+]
+
 import re
 import sys
 import binaryninja
@@ -1203,6 +1440,17 @@ def run_all_tests():
                 'MISMATCH AT INFO TEST %d!\n\t   input: %s\n\texpected: length=%d branches=%s arch_transition=%s\n\t  actual: length=%d branches=%s arch_transition=%s'
                 % (test_i, data.hex(), expected_length, expected_branches, expected_arch_transition,
                     info.length, actual_branches, info.arch_transition_by_target_addr))
+
+    for arch_name in ('armv7', 'thumb2'):
+        for intrinsic_name, expected_inputs, expected_outputs in intrinsic_test_cases:
+            intrinsic = binaryninja.Architecture[arch_name].intrinsics[intrinsic_name]
+            actual_inputs = [(operand.name, operand.type.width) for operand in intrinsic.inputs]
+            actual_outputs = [operand.width for operand in intrinsic.outputs]
+            if actual_inputs != expected_inputs or actual_outputs != expected_outputs:
+                fail_test(
+                    f'MISMATCH FOR {arch_name} INTRINSIC {intrinsic_name}!\n'
+                    f'\texpected: {expected_inputs} -> {expected_outputs}\n'
+                    f'\t  actual: {actual_inputs} -> {actual_outputs}')
 
 def test_all():
     run_all_tests()

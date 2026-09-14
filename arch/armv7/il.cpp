@@ -1088,32 +1088,33 @@ static void VectorCompareEqual(LowLevelILFunction& il, Instruction& instr)
 		}));
 }
 
-static ExprId VectorCompareGreaterThan(LowLevelILFunction& il, Instruction& instr)
+static ExprId VectorCompareOrdered(LowLevelILFunction& il, Instruction& instr, uint32_t intrinsic, uint32_t wideIntrinsic)
 {
 	InstructionOperand& dst = instr.operands[0];
 	InstructionOperand& src1 = instr.operands[1];
 	InstructionOperand& src2 = instr.operands[2];
-
-	if (dst.cls != REG || src1.cls != REG || (src2.cls != REG && src2.cls != IMM))
+	if (dst.cls != REG || src1.cls != REG || (src2.cls != REG && (src2.cls != IMM || src2.imm != 0)))
 		return il.Unimplemented();
 
-	size_t elementSize = GetDataTypeSize(instr.dataType);
 	size_t regSize = get_register_size(dst.reg);
-	if (elementSize == 0 || regSize == 0)
+	size_t elementSize = GetDataTypeSize(instr.dataType);
+	bool isFloat = instr.dataType == DT_F32;
+	bool isUnsigned = IsUnsignedDataType(instr.dataType);
+	if ((regSize != 8 && regSize != 16) || (elementSize != 1 && elementSize != 2 && elementSize != 4)
+		|| (!isFloat && !isUnsigned && !IsSignedDataType(instr.dataType))
+		|| get_register_size(src1.reg) != regSize || (src2.cls == REG && get_register_size(src2.reg) != regSize))
 		return il.Unimplemented();
 
-	if (src2.cls == IMM && src2.imm != 0)
-		return il.Unimplemented();
-
-	ExprId rhs = (src2.cls == IMM) ? il.Const(regSize, 0) : il.Register(get_register_size(src2.reg), src2.reg);
-	bool isUnsigned = !IsSignedDataType(instr.dataType) && instr.dataType != DT_F32 && instr.dataType != DT_F64;
+	ExprId lhs = il.Register(regSize, src1.reg);
+	ExprId rhs = src2.cls == IMM ? il.Const(regSize, 0) : il.Register(regSize, src2.reg);
 	return il.Intrinsic(
 		{ RegisterOrFlag::Register(dst.reg) },
-		ARMV7_INTRIN_VCGT,
+		regSize == 16 ? wideIntrinsic : intrinsic,
 		{
 			il.Const(1, elementSize * 8),
 			il.Const(1, isUnsigned ? 1 : 0),
-			il.Register(get_register_size(src1.reg), src1.reg),
+			il.Const(1, isFloat ? 1 : 0),
+			lhs,
 			rhs,
 		});
 }
@@ -4762,7 +4763,13 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 				});
 			break;
 		case ARMV7_VCGT:
-			ConditionExecute(il, instr.cond, VectorCompareGreaterThan(il, instr));
+			ConditionExecute(il, instr.cond, VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCGT, ARMV7_INTRIN_VCGT_Q));
+			break;
+		case ARMV7_VCGE:
+			ConditionExecute(il, instr.cond, VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCGE, ARMV7_INTRIN_VCGE_Q));
+			break;
+		case ARMV7_VCLT:
+			ConditionExecute(il, instr.cond, VectorCompareOrdered(il, instr, ARMV7_INTRIN_VCLT, ARMV7_INTRIN_VCLT_Q));
 			break;
 		case ARMV7_VAND:
 			if (op1.cls != REG || op2.cls != REG || op3.cls != REG)
@@ -4841,6 +4848,19 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 			ConditionExecute(il, instr.cond,
 				il.SetRegister(size, op1.reg,
 					il.Or(size, il.And(size, setValue, mask), il.And(size, clearValue, il.Not(size, mask)))));
+			break;
+		}
+		case ARMV7_VEOR:
+		{
+			size_t size = get_register_size(op1.reg);
+			if (op1.cls != REG || op2.cls != REG || op3.cls != REG || (size != 8 && size != 16)
+				|| get_register_size(op2.reg) != size || get_register_size(op3.reg) != size)
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
+				break;
+			}
+			ConditionExecute(il, instr.cond,
+				il.SetRegister(size, op1.reg, il.Xor(size, il.Register(size, op2.reg), il.Register(size, op3.reg))));
 			break;
 		}
 		case ARMV7_VORR:

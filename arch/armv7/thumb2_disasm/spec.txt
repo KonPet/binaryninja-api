@@ -4669,7 +4669,7 @@ if (Q == '1' && (Vd<0> == '1' || Vm<0> == '1')) then UNDEFINED;
 esize = 8 << UInt(size);  elements = 64 DIV esize;
 d = UInt(D:Vd);  m = UInt(M:Vm);  regs = if Q == '0' then 1 else 2;
 fmt_idx = (Q == '1');
-dt = size;
+dt = size + F;
 pcode_end
 
 vcge_register:

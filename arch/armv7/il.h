@@ -205,6 +205,13 @@ enum Armv7Intrinsic : uint32_t
 	ARMV7_INTRIN_VCVT_FIXED,
 	ARMV7_INTRIN_VABS_Q,
 	ARMV7_INTRIN_VCVT_FIXED_Q,
+	// Lane-wise >=; matching lanes produce all ones, otherwise all zeros.
+	ARMV7_INTRIN_VCGE,
+	ARMV7_INTRIN_VCGE_Q,
+	ARMV7_INTRIN_VCGT_Q,
+	// Lane-wise < comparison, with the original source operand order.
+	ARMV7_INTRIN_VCLT,
+	ARMV7_INTRIN_VCLT_Q,
 };
 
 enum ArmFakeRegister: uint32_t
