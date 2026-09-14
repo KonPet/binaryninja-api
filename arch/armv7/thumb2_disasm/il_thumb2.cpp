@@ -1795,7 +1795,8 @@ static void VfpLoadStoreMultiple(LowLevelILFunction& il, decomp_result* instr, b
 	uint32_t regs = instr->fields[FIELD_regs];
 	bool increment = IS_FIELD_PRESENT(instr, FIELD_add) ? instr->fields[FIELD_add] != 0
 		: ((instr->mnem == armv7::ARMV7_VLDMIA) || (instr->mnem == armv7::ARMV7_VSTMIA));
-	size_t totalSize = regs * regSize;
+	// Use the encoded span, including the trailing word for FLDM*X.
+	size_t totalSize = instr->fields[FIELD_imm32];
 
 	ExprId base = il.Register(4, baseReg);
 	ExprId start = increment ? base : il.Sub(4, base, il.Const(4, totalSize));
@@ -4811,6 +4812,8 @@ bool GetLowLevelILForNEONInstruction(Architecture* arch, LowLevelILFunction& il,
 	case armv7::ARMV7_VLDM:
 	case armv7::ARMV7_VLDMDB:
 	case armv7::ARMV7_VLDMIA:
+	case armv7::ARMV7_FLDMDBX:
+	case armv7::ARMV7_FLDMIAX:
 	{
 		VfpLoadStoreMultiple(il, instr, true);
 		break;

@@ -1787,7 +1787,7 @@ static void LoadVpop(LowLevelILFunction& il, Instruction& instr, size_t addr)
 }
 
 static void VfpLoadStoreMultiple(LowLevelILFunction& il, InstructionOperand& base, InstructionOperand& regs, bool load,
-	bool decrementBefore)
+	bool decrementBefore, size_t addr, bool extraWord = false)
 {
 	uint32_t regMask = (uint32_t)regs.reg;
 	Register baseReg;
@@ -1821,8 +1821,10 @@ static void VfpLoadStoreMultiple(LowLevelILFunction& il, InstructionOperand& bas
 		if (((regMask >> i) & 1) == 1)
 			count++;
 	}
-	size_t totalSize = count * regSize;
-	ExprId start = decrementBefore ? il.Sub(4, il.Register(4, base.reg), il.Const(4, totalSize)) : il.Register(4, base.reg);
+	// FLDM*X includes a trailing word in the address span, but does not load it.
+	size_t totalSize = count * regSize + (extraWord ? 4 : 0);
+	ExprId baseAddress = ReadRegisterOrPointer(il, base, addr);
+	ExprId start = decrementBefore ? il.Sub(4, baseAddress, il.Const(4, totalSize)) : baseAddress;
 
 	uint32_t index = 0;
 	for (uint32_t i = 0; i < 32; i++)
@@ -1841,8 +1843,8 @@ static void VfpLoadStoreMultiple(LowLevelILFunction& il, InstructionOperand& bas
 
 	if (base.flags.wb)
 	{
-		ExprId newBase = decrementBefore ? il.Sub(4, il.Register(4, base.reg), il.Const(4, totalSize))
-			: il.Add(4, il.Register(4, base.reg), il.Const(4, totalSize));
+		ExprId newBase = decrementBefore ? il.Sub(4, baseAddress, il.Const(4, totalSize))
+			: il.Add(4, baseAddress, il.Const(4, totalSize));
 		il.AddInstruction(il.SetRegister(4, base.reg, newBase));
 	}
 }
@@ -2988,18 +2990,22 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 				{
 					(void) addrSize;
 					(void) instr;
-					VfpLoadStoreMultiple(il, op1, op2, false, instr.operation == ARMV7_VSTMDB);
+					VfpLoadStoreMultiple(il, op1, op2, false, instr.operation == ARMV7_VSTMDB, addr);
 				});
 			break;
 		case ARMV7_VLDM:
 		case ARMV7_VLDMIA:
 		case ARMV7_VLDMDB:
+		case ARMV7_FLDMDBX:
+		case ARMV7_FLDMIAX:
 			ConditionExecute(addrSize, instr.cond, instr, il,
 				[&](size_t addrSize, Instruction& instr, LowLevelILFunction& il)
 				{
 					(void) addrSize;
 					(void) instr;
-					VfpLoadStoreMultiple(il, op1, op2, true, instr.operation == ARMV7_VLDMDB);
+					VfpLoadStoreMultiple(il, op1, op2, true,
+						instr.operation == ARMV7_VLDMDB || instr.operation == ARMV7_FLDMDBX, addr,
+						instr.operation == ARMV7_FLDMDBX || instr.operation == ARMV7_FLDMIAX);
 				});
 			break;
 		case ARMV7_QADD:

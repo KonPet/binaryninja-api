@@ -77,6 +77,7 @@ int enterx_leavex(struct decomp_request *req, struct decomp_result *res);
 int eor_immediate(struct decomp_request *req, struct decomp_result *res);
 int eor_register(struct decomp_request *req, struct decomp_result *res);
 int extension_reg_load_store(struct decomp_request *req, struct decomp_result *res);
+int fldmx(struct decomp_request *req, struct decomp_result *res);
 int hint_undoc(struct decomp_request *req, struct decomp_result *res);
 int if_then_hints(struct decomp_request *req, struct decomp_result *res);
 int isb(struct decomp_request *req, struct decomp_result *res);
@@ -5934,6 +5935,129 @@ int extension_reg_load_store(struct decomp_request *req, struct decomp_result *r
 	if(((Opcode & 0x1B)==0x13) && 1) return vldm(req, res);
 	if(((Opcode & 0x13)==0x10) && 1) return vstr(req, res);
 	if(((Opcode & 0x13)==0x11) && 1) return vldr(req, res);
+	return undefined(req, res);
+}
+
+// gen_crc: 36EA20CB
+int fldmx(struct decomp_request *req, struct decomp_result *res)
+{
+	int rc = -1;
+
+	res->group = INSN_GROUP_UNKNOWN;
+	res->group = INSN_GROUP_NEON;
+	/* Encoding T1 */
+	/* pattern="1110,110,P.1,U.1,D.1,W.1,1,Rn.4,Vd.4,1011,imm8.8" width=32 stringency=16 */
+	{
+		uint32_t instr = req->instr_word32;
+		if(((instr & 0xFE100F00)==0xEC100B00)) {
+			res->instrSize = 32;
+			if(!(req->arch & ARCH_VFPv2) && !(req->arch & ARCH_VFPv3) && !(req->arch & ARCH_ADVSIMD)) {
+				res->status |= STATUS_ARCH_UNSUPPORTED;
+			}
+			res->fields[FIELD_cond] = COND_AL;
+			res->fields_mask[FIELD_cond >> 6] |= 1LL << (FIELD_cond & 63);
+			res->fields[FIELD_P] = (instr & 0x1000000)>>24;
+			res->fields_mask[FIELD_P >> 6] |= 1LL << (FIELD_P & 63);
+			char P_width = 1;
+			res->fields[FIELD_U] = (instr & 0x800000)>>23;
+			res->fields_mask[FIELD_U >> 6] |= 1LL << (FIELD_U & 63);
+			char U_width = 1;
+			res->fields[FIELD_D] = (instr & 0x400000)>>22;
+			res->fields_mask[FIELD_D >> 6] |= 1LL << (FIELD_D & 63);
+			char D_width = 1;
+			res->fields[FIELD_W] = (instr & 0x200000)>>21;
+			res->fields_mask[FIELD_W >> 6] |= 1LL << (FIELD_W & 63);
+			char W_width = 1;
+			res->fields[FIELD_Rn] = (instr & 0xF0000)>>16;
+			res->fields_mask[FIELD_Rn >> 6] |= 1LL << (FIELD_Rn & 63);
+			char Rn_width = 4;
+			res->fields[FIELD_Vd] = (instr & 0xF000)>>12;
+			res->fields_mask[FIELD_Vd >> 6] |= 1LL << (FIELD_Vd & 63);
+			char Vd_width = 4;
+			res->fields[FIELD_imm8] = instr & 0xFF;
+			res->fields_mask[FIELD_imm8 >> 6] |= 1LL << (FIELD_imm8 & 63);
+			char imm8_width = 8;
+
+			static const instruction_format instr_formats[] =
+			{
+				{ /* FLDMDBX<c> <Rn>!,<registers> */
+					"fldmdbx", /* .operation (const char *) */
+					0|INSTR_FORMAT_FLAG_CONDITIONAL, /* .operationFlags (uint32_t) */
+					{/* .operands (instruction_operand_format) */
+						{OPERAND_FORMAT_REG,FIELD_Rn,FIELD_UNINIT,"","",WRITEBACK_YES},
+						{OPERAND_FORMAT_REGISTERS,FIELD_registers,FIELD_UNINIT,"","",WRITEBACK_NO},
+						{OPERAND_FORMAT_END,FIELD_UNINIT,FIELD_UNINIT,"","",WRITEBACK_NO},
+					},
+					2 /* .operandCount */
+				},
+				{ /* FLDMIAX<c> <Rn>{!},<registers> */
+					"fldmiax", /* .operation (const char *) */
+					0|INSTR_FORMAT_FLAG_CONDITIONAL, /* .operationFlags (uint32_t) */
+					{/* .operands (instruction_operand_format) */
+						{OPERAND_FORMAT_REG,FIELD_Rn,FIELD_UNINIT,"","",WRITEBACK_OPTIONAL},
+						{OPERAND_FORMAT_REGISTERS,FIELD_registers,FIELD_UNINIT,"","",WRITEBACK_NO},
+						{OPERAND_FORMAT_END,FIELD_UNINIT,FIELD_UNINIT,"","",WRITEBACK_NO},
+					},
+					2 /* .operandCount */
+				},
+			}; /* ENDS instruction_format array */
+
+			res->formats = instr_formats;
+			res->formatCount = 2;
+			res->mnem = armv7::ARMV7_FLDMDBX;
+
+			/* pcode: if (P == '0' && U == '0' && W == '0') then SEE xfer_64_core_ext_regs */
+			if(((((res->fields[FIELD_P]) == (0x0)) && ((res->fields[FIELD_U]) == (0x0))) && ((res->fields[FIELD_W]) == (0x0)))) {
+
+				return xfer_64_core_ext_regs(req, res);
+			}
+			/* pcode: if (P == '1' && W == '0') then SEE vldr */
+			if((((res->fields[FIELD_P]) == (0x1)) && ((res->fields[FIELD_W]) == (0x0)))) {
+
+				return vldr(req, res);
+			}
+			/* pcode: if (P == U && W == '1') then UNDEFINED */
+			if((((res->fields[FIELD_P]) == (res->fields[FIELD_U])) && ((res->fields[FIELD_W]) == (0x1)))) {
+				res->status |= STATUS_UNDEFINED;
+			}
+			/* pcode: single_regs = FALSE */
+			res->fields[FIELD_single_regs] = 0;
+			res->fields_mask[FIELD_single_regs >> 6] |= 1LL << (FIELD_single_regs & 63);
+			/* pcode: add = (U == '1') */
+			res->fields[FIELD_add] = ((res->fields[FIELD_U]) == (0x1));
+			res->fields_mask[FIELD_add >> 6] |= 1LL << (FIELD_add & 63);
+			/* pcode: wback = (W == '1') */
+			res->fields[FIELD_wback] = ((res->fields[FIELD_W]) == (0x1));
+			res->fields_mask[FIELD_wback >> 6] |= 1LL << (FIELD_wback & 63);
+			/* pcode: d = UInt(D:Vd) */
+			res->fields[FIELD_d] = ((res->fields[FIELD_D]<<Vd_width)|(res->fields[FIELD_Vd]));
+			res->fields_mask[FIELD_d >> 6] |= 1LL << (FIELD_d & 63);
+			/* pcode: n = UInt(Rn) */
+			res->fields[FIELD_n] = (res->fields[FIELD_Rn]);
+			res->fields_mask[FIELD_n >> 6] |= 1LL << (FIELD_n & 63);
+			/* pcode: imm32 = ZeroExtend(imm8:'00', 32) */
+			res->fields[FIELD_imm32] = (res->fields[FIELD_imm8]<<2)|(0x0);
+			res->fields_mask[FIELD_imm32 >> 6] |= 1LL << (FIELD_imm32 & 63);
+			/* pcode: regs = UInt(imm8) DIV 2 */
+			res->fields[FIELD_regs] = ((2) ? (((res->fields[FIELD_imm8])) / (2)) : 0);
+			res->fields_mask[FIELD_regs >> 6] |= 1LL << (FIELD_regs & 63);
+			/* pcode: if n == 15 then UNPREDICTABLE */
+			if((res->fields[FIELD_n]) == (15)) {
+				res->flags |= FLAG_UNPREDICTABLE;
+			}
+			/* pcode: if (regs == 0 || regs > 16 || (d+regs) > 16) then UNPREDICTABLE */
+			if(((((res->fields[FIELD_regs]) == (0)) || ((res->fields[FIELD_regs]) > (16))) || ((((res->fields[FIELD_d]) + (res->fields[FIELD_regs]))) > (16)))) {
+				res->flags |= FLAG_UNPREDICTABLE;
+			}
+			/* pcode: fmt_idx = U */
+			res->fields[FIELD_fmt_idx] = res->fields[FIELD_U];
+			res->fields_mask[FIELD_fmt_idx >> 6] |= 1LL << (FIELD_fmt_idx & 63);
+
+			return success();
+		} /* ENDS if(<encoding_match_test>) ... */
+	} /* ENDS single encoding block */
+
+	/* if fall-thru here, no encoding block matched */
 	return undefined(req, res);
 }
 
@@ -38785,7 +38909,7 @@ int vld4_single_4elem_nlanes(struct decomp_request *req, struct decomp_result *r
 	return undefined(req, res);
 }
 
-// gen_crc: 9373B587
+// gen_crc: 70B8FD1D
 int vldm(struct decomp_request *req, struct decomp_result *res)
 {
 	int rc = -1;
@@ -38975,19 +39099,20 @@ int vldm(struct decomp_request *req, struct decomp_result *res)
 
 				return xfer_64_core_ext_regs(req, res);
 			}
-			/* pcode: if (P == '0' && U == '1' && W == '1' && Rn == '1101') then SEE vpop */
-			if((((((res->fields[FIELD_P]) == (0x0)) && ((res->fields[FIELD_U]) == (0x1))) && ((res->fields[FIELD_W]) == (0x1))) && ((res->fields[FIELD_Rn]) == (0xD)))) {
-
-				return vpop(req, res);
-			}
 			/* pcode: if (P == '1' && W == '0') then SEE vldr */
 			if((((res->fields[FIELD_P]) == (0x1)) && ((res->fields[FIELD_W]) == (0x0)))) {
 
 				return vldr(req, res);
 			}
-			/* pcode: if (imm8<0> == '1') then UNDEFINED */
+			/* pcode: if (imm8<0> == '1') then SEE fldmx */
 			if((((res->fields[FIELD_imm8] & 1)) == (0x1))) {
-				res->status |= STATUS_UNDEFINED;
+
+				return fldmx(req, res);
+			}
+			/* pcode: if (P == '0' && U == '1' && W == '1' && Rn == '1101') then SEE vpop */
+			if((((((res->fields[FIELD_P]) == (0x0)) && ((res->fields[FIELD_U]) == (0x1))) && ((res->fields[FIELD_W]) == (0x1))) && ((res->fields[FIELD_Rn]) == (0xD)))) {
+
+				return vpop(req, res);
 			}
 			/* pcode: if (P == U && W == '1') then UNDEFINED */
 			if((((res->fields[FIELD_P]) == (res->fields[FIELD_U])) && ((res->fields[FIELD_W]) == (0x1)))) {
@@ -44716,7 +44841,7 @@ int vpmax_integer(struct decomp_request *req, struct decomp_result *res)
 	return undefined(req, res);
 }
 
-// gen_crc: 1A1F516C
+// gen_crc: 8E9AABD2
 int vpop(struct decomp_request *req, struct decomp_result *res)
 {
 	int rc = -1;
@@ -44762,6 +44887,11 @@ int vpop(struct decomp_request *req, struct decomp_result *res)
 			res->formatCount = 1;
 			res->mnem = armv7::ARMV7_VPOP;
 
+			/* pcode: if imm8<0> == '1' then SEE fldmx */
+			if(((res->fields[FIELD_imm8] & 1)) == (0x1)) {
+
+				return fldmx(req, res);
+			}
 			/* pcode: single_regs = FALSE */
 			res->fields[FIELD_single_regs] = 0;
 			res->fields_mask[FIELD_single_regs >> 6] |= 1LL << (FIELD_single_regs & 63);

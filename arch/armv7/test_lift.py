@@ -526,6 +526,41 @@ test_cases = \
     ('A', b'\x04\x0a\x90\xec', 'LLIL_SET_REG.d(s0,LLIL_LOAD.d(LLIL_REG.d(r0))); LLIL_SET_REG.d(s1,LLIL_LOAD.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x4)))); LLIL_SET_REG.d(s2,LLIL_LOAD.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(s3,LLIL_LOAD.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0xC))))'),
     # vstmia r0, {s0, s1, s2, s3}
     ('A', b'\x04\x0a\x80\xec', 'LLIL_STORE.d(LLIL_REG.d(r0),LLIL_REG.d(s0)); LLIL_STORE.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x4)),LLIL_REG.d(s1)); LLIL_STORE.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x8)),LLIL_REG.d(s2)); LLIL_STORE.d(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0xC)),LLIL_REG.d(s3))'),
+
+    # FLDM*X has a trailing word that contributes to the address span but is not loaded.
+    # fldmiax r0, {d0, d1} -- no writeback
+    ('A', b'\x05\x0b\x90\xec', 'LLIL_SET_REG.q(d0,LLIL_LOAD.q(LLIL_REG.d(r0))); LLIL_SET_REG.q(d1,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x8))))'),
+    ('T', b'\x90\xec\x05\x0b', 'LLIL_SET_REG.q(d0,LLIL_LOAD.q(LLIL_REG.d(r0))); LLIL_SET_REG.q(d1,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(r0),LLIL_CONST.d(0x8))))'),
+    # fldmiax r1!, {d2, d3} -- writeback is 20 bytes, not 16
+    ('A', b'\x05\x2b\xb1\xec', 'LLIL_SET_REG.q(d2,LLIL_LOAD.q(LLIL_REG.d(r1))); LLIL_SET_REG.q(d3,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r1,LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x14)))'),
+    ('T', b'\xb1\xec\x05\x2b', 'LLIL_SET_REG.q(d2,LLIL_LOAD.q(LLIL_REG.d(r1))); LLIL_SET_REG.q(d3,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r1,LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x14)))'),
+    # fldmdbx r2!, {d4, d5} -- loads start 20 bytes below the original base
+    ('A', b'\x05\x4b\x32\xed', 'LLIL_SET_REG.q(d4,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d5,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r2,LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))'),
+    ('T', b'\x32\xed\x05\x4b', 'LLIL_SET_REG.q(d4,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d5,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r2,LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))'),
+    # fldmiax sp!, {d8, d9} -- the odd immediate must not decode as VPOP
+    ('A', b'\x05\x8b\xbd\xec', 'LLIL_SET_REG.q(d8,LLIL_LOAD.q(LLIL_REG.d(sp))); LLIL_SET_REG.q(d9,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(sp),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(sp,LLIL_ADD.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))'),
+    ('T', b'\xbd\xec\x05\x8b', 'LLIL_SET_REG.q(d8,LLIL_LOAD.q(LLIL_REG.d(sp))); LLIL_SET_REG.q(d9,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(sp),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(sp,LLIL_ADD.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))'),
+    # fldmdbx sp!, {d8, d9}
+    ('A', b'\x05\x8b\x3d\xed', 'LLIL_SET_REG.q(d8,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d9,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(sp,LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))'),
+    ('T', b'\x3d\xed\x05\x8b', 'LLIL_SET_REG.q(d8,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d9,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(sp,LLIL_SUB.d(LLIL_REG.d(sp),LLIL_CONST.d(0x14)))'),
+    # fldmiax r3!, {d15} -- a single register at the end of the permitted range
+    ('A', b'\x03\xfb\xb3\xec', 'LLIL_SET_REG.q(d15,LLIL_LOAD.q(LLIL_REG.d(r3))); LLIL_SET_REG.d(r3,LLIL_ADD.d(LLIL_REG.d(r3),LLIL_CONST.d(0xC)))'),
+    ('T', b'\xb3\xec\x03\xfb', 'LLIL_SET_REG.q(d15,LLIL_LOAD.q(LLIL_REG.d(r3))); LLIL_SET_REG.d(r3,LLIL_ADD.d(LLIL_REG.d(r3),LLIL_CONST.d(0xC)))'),
+    # fldmdbx r4!, {d15}
+    ('A', b'\x03\xfb\x34\xed', 'LLIL_SET_REG.q(d15,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r4),LLIL_CONST.d(0xC)))); LLIL_SET_REG.d(r4,LLIL_SUB.d(LLIL_REG.d(r4),LLIL_CONST.d(0xC)))'),
+    ('T', b'\x34\xed\x03\xfb', 'LLIL_SET_REG.q(d15,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r4),LLIL_CONST.d(0xC)))); LLIL_SET_REG.d(r4,LLIL_SUB.d(LLIL_REG.d(r4),LLIL_CONST.d(0xC)))'),
+    # fldmiax pc, {d0} -- A32 permits PC without writeback
+    ('A', b'\x03\x0b\x9f\xec', 'LLIL_SET_REG.q(d0,LLIL_LOAD.q(LLIL_CONST.d(0x8)))'),
+    # fldmdbxeq r2!, {d4, d5}; Thumb uses an IT EQ prefix
+    ('A', b'\x05\x4b\x32\x0d', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,5); LLIL_SET_REG.q(d4,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d5,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r2,LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14))); LLIL_GOTO(5)'),
+    ('T', b'\x08\xbf\x32\xed\x05\x4b', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,5); LLIL_SET_REG.q(d4,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)))); LLIL_SET_REG.q(d5,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r2,LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x14))); LLIL_GOTO(5)'),
+    # Adjacent Thumb encodings retain their VLDM/VPOP behavior.
+    # vldmia r1!, {d2, d3}
+    ('T', b'\xb1\xec\x04\x2b', 'LLIL_SET_REG.q(d2,LLIL_LOAD.q(LLIL_REG.d(r1))); LLIL_SET_REG.q(d3,LLIL_LOAD.q(LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r1,LLIL_ADD.d(LLIL_REG.d(r1),LLIL_CONST.d(0x10)))'),
+    # vldmdb r2!, {d4, d5}
+    ('T', b'\x32\xed\x04\x4b', 'LLIL_SET_REG.q(d4,LLIL_LOAD.q(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x10)))); LLIL_SET_REG.q(d5,LLIL_LOAD.q(LLIL_ADD.d(LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x10)),LLIL_CONST.d(0x8)))); LLIL_SET_REG.d(r2,LLIL_SUB.d(LLIL_REG.d(r2),LLIL_CONST.d(0x10)))'),
+    # vpop {d8, d9}
+    ('T', b'\xbd\xec\x04\x8b', 'LLIL_SET_REG.q(d8,LLIL_POP.q()); LLIL_SET_REG.q(d9,LLIL_POP.q())'),
     # orr r0, r1, r3, lsl r4
     ('A', b'\x13\x04\x81\xe1', 'LLIL_SET_REG.d(r0,LLIL_OR.d(LLIL_REG.d(r1),LLIL_LSL.d(LLIL_REG.d(r3),LLIL_AND.d(LLIL_REG.d(r4),LLIL_CONST.d(0xFF)))))'),
 
