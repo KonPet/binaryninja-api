@@ -3595,7 +3595,6 @@ if Vd<0> == '1' then UNDEFINED;
 esize = 8 * UInt(imm3);
 unsigned = (U == '1');  elements = 64 DIV esize;
 d = UInt(D:Vd);  m = UInt(M:Vm);
-unsigned = TRUE;
 dt = UInt(U:imm3)
 dt = dt DIV 2
 pcode_end

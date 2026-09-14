@@ -42034,7 +42034,7 @@ int vmov_scalar_core(struct decomp_request *req, struct decomp_result *res)
 	return undefined(req, res);
 }
 
-// gen_crc: 8E858F6E
+// gen_crc: 394DE743
 int vmovl(struct decomp_request *req, struct decomp_result *res)
 {
 	int rc = -1;
@@ -42118,9 +42118,6 @@ int vmovl(struct decomp_request *req, struct decomp_result *res)
 			/* pcode: m = UInt(M:Vm) */
 			res->fields[FIELD_m] = ((res->fields[FIELD_M]<<Vm_width)|(res->fields[FIELD_Vm]));
 			res->fields_mask[FIELD_m >> 6] |= 1LL << (FIELD_m & 63);
-			/* pcode: unsigned = TRUE */
-			res->fields[FIELD_unsigned] = 1;
-			res->fields_mask[FIELD_unsigned >> 6] |= 1LL << (FIELD_unsigned & 63);
 			/* pcode: dt = UInt(U:imm3) */
 			res->fields[FIELD_dt] = ((res->fields[FIELD_U]<<3)|(res->fields[FIELD_imm3]));
 			res->fields_mask[FIELD_dt >> 6] |= 1LL << (FIELD_dt & 63);

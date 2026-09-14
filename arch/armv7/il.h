@@ -212,6 +212,10 @@ enum Armv7Intrinsic : uint32_t
 	// Lane-wise < comparison, with the original source operand order.
 	ARMV7_INTRIN_VCLT,
 	ARMV7_INTRIN_VCLT_Q,
+	// Widen each D-register lane to twice its size in a Q register.
+	ARMV7_INTRIN_VMOVL,
+	// Keep the low half of each Q-register lane in a D register.
+	ARMV7_INTRIN_VMOVN,
 };
 
 enum ArmFakeRegister: uint32_t

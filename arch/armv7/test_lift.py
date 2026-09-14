@@ -85,6 +85,9 @@ def veor_expected(dst, src1, src2):
     size = 'o' if dst.startswith('q') else 'q'
     return f'LLIL_SET_REG.{size}({dst},LLIL_XOR.{size}(LLIL_REG.{size}({src1}),LLIL_REG.{size}({src2})))'
 
+def vmovn_expected(dst, size, src):
+    return f'LLIL_INTRINSIC([{dst}],__vmovn,[LLIL_CONST.b(0x{size:X}),LLIL_REG.o({src})])'
+
 test_cases = \
 [
     # Post-Indexed addressing (normal)
@@ -749,6 +752,109 @@ test_cases = \
     ('T', b'\x21\xff\x23\x4f', 'LLIL_INTRINSIC([d4],__vpmin,[LLIL_CONST.b(0x20),LLIL_CONST.b(0x0),LLIL_REG.q(d1),LLIL_REG.q(d19)])'),
     # vshl.u64 d16, d16, d17
     ('A', b'\xa0\x04\x71\xf3', 'LLIL_IF(LLIL_CMP_SLT.q(LLIL_REG.q(d17),LLIL_CONST.q(0x0)),1,3); LLIL_SET_REG.q(d16,LLIL_LSR.q(LLIL_REG.q(d16),LLIL_NEG.q(LLIL_REG.q(d17)))); LLIL_GOTO(5); LLIL_SET_REG.q(d16,LLIL_LSL.q(LLIL_REG.q(d16),LLIL_REG.q(d17))); LLIL_GOTO(5)'),
+    # VMOVN truncates each Q-register lane to half its size in a D register, without saturation.
+    # The size argument describes the source lanes: 16->8, 32->16, or 64->32 bits.
+    # vmovn.i16 d0, q1
+    ('A', b'\x02\x02\xb2\xf3', vmovn_expected('d0', 16, 'q1')),
+    ('T', b'\xb2\xff\x02\x02', vmovn_expected('d0', 16, 'q1')),
+    # vmovn.i32 d0, q1
+    ('A', b'\x02\x02\xb6\xf3', vmovn_expected('d0', 32, 'q1')),
+    ('T', b'\xb6\xff\x02\x02', vmovn_expected('d0', 32, 'q1')),
+    # vmovn.i64 d0, q1
+    ('A', b'\x02\x02\xba\xf3', vmovn_expected('d0', 64, 'q1')),
+    ('T', b'\xba\xff\x02\x02', vmovn_expected('d0', 64, 'q1')),
+    # vmovn.i16 d31, q14 -- high register numbers for both operands
+    ('A', b'\x2c\xf2\xf2\xf3', vmovn_expected('d31', 16, 'q14')),
+    ('T', b'\xf2\xff\x2c\xf2', vmovn_expected('d31', 16, 'q14')),
+    # vmovn.i32 d31, q14
+    ('A', b'\x2c\xf2\xf6\xf3', vmovn_expected('d31', 32, 'q14')),
+    ('T', b'\xf6\xff\x2c\xf2', vmovn_expected('d31', 32, 'q14')),
+    # vmovn.i64 d31, q14
+    ('A', b'\x2c\xf2\xfa\xf3', vmovn_expected('d31', 64, 'q14')),
+    ('T', b'\xfa\xff\x2c\xf2', vmovn_expected('d31', 64, 'q14')),
+    # vmovn.i16 d0, q0 -- destination overlaps the low half of the source
+    ('A', b'\x00\x02\xb2\xf3', vmovn_expected('d0', 16, 'q0')),
+    ('T', b'\xb2\xff\x00\x02', vmovn_expected('d0', 16, 'q0')),
+    # vmovn.i32 d0, q0
+    ('A', b'\x00\x02\xb6\xf3', vmovn_expected('d0', 32, 'q0')),
+    ('T', b'\xb6\xff\x00\x02', vmovn_expected('d0', 32, 'q0')),
+    # vmovn.i64 d0, q0
+    ('A', b'\x00\x02\xba\xf3', vmovn_expected('d0', 64, 'q0')),
+    ('T', b'\xba\xff\x00\x02', vmovn_expected('d0', 64, 'q0')),
+    # vmovn.i16 d1, q0 -- destination overlaps the high half of the source
+    ('A', b'\x00\x12\xb2\xf3', vmovn_expected('d1', 16, 'q0')),
+    ('T', b'\xb2\xff\x00\x12', vmovn_expected('d1', 16, 'q0')),
+    # vmovn.i32 d1, q0
+    ('A', b'\x00\x12\xb6\xf3', vmovn_expected('d1', 32, 'q0')),
+    ('T', b'\xb6\xff\x00\x12', vmovn_expected('d1', 32, 'q0')),
+    # vmovn.i64 d1, q0
+    ('A', b'\x00\x12\xba\xf3', vmovn_expected('d1', 64, 'q0')),
+    ('T', b'\xba\xff\x00\x12', vmovn_expected('d1', 64, 'q0')),
+    # vmovn.i32 d30, q15
+    ('A', b'\x2e\xe2\xf6\xf3', vmovn_expected('d30', 32, 'q15')),
+    ('T', b'\xf6\xff\x2e\xe2', vmovn_expected('d30', 32, 'q15')),
+    # vmovn.i64 d31, q15
+    ('A', b'\x2e\xf2\xfa\xf3', vmovn_expected('d31', 64, 'q15')),
+    ('T', b'\xfa\xff\x2e\xf2', vmovn_expected('d31', 64, 'q15')),
+    # it eq; vmovneq.i16 d0, q1
+    ('T', b'\x08\xbf\xb2\xff\x02\x02', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vmovn_expected('d0', 16, 'q1') + '; LLIL_GOTO(3)'),
+    # it ne; vmovnne.i64 d31, q15
+    ('T', b'\x18\xbf\xfa\xff\x2e\xf2', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vmovn_expected('d31', 64, 'q15') + '; LLIL_GOTO(3)'),
+
+    # VMOVL widens each source lane from D to Q, using sign or zero extension.
+    # vmovl.s8 q1, d0
+    ('A', b'\x10\x2a\x88\xf2', vector_unary_intrinsic_expected('q1', 'vmovl', 8, 0, 'd0')),
+    ('T', b'\x88\xef\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 8, 0, 'd0')),
+    # vmovl.u8 q1, d0
+    ('A', b'\x10\x2a\x88\xf3', vector_unary_intrinsic_expected('q1', 'vmovl', 8, 1, 'd0')),
+    ('T', b'\x88\xff\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 8, 1, 'd0')),
+    # vmovl.s16 q1, d0
+    ('A', b'\x10\x2a\x90\xf2', vector_unary_intrinsic_expected('q1', 'vmovl', 16, 0, 'd0')),
+    ('T', b'\x90\xef\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 16, 0, 'd0')),
+    # vmovl.u16 q1, d0
+    ('A', b'\x10\x2a\x90\xf3', vector_unary_intrinsic_expected('q1', 'vmovl', 16, 1, 'd0')),
+    ('T', b'\x90\xff\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 16, 1, 'd0')),
+    # vmovl.s32 q1, d0
+    ('A', b'\x10\x2a\xa0\xf2', vector_unary_intrinsic_expected('q1', 'vmovl', 32, 0, 'd0')),
+    ('T', b'\xa0\xef\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 32, 0, 'd0')),
+    # vmovl.u32 q1, d0
+    ('A', b'\x10\x2a\xa0\xf3', vector_unary_intrinsic_expected('q1', 'vmovl', 32, 1, 'd0')),
+    ('T', b'\xa0\xff\x10\x2a', vector_unary_intrinsic_expected('q1', 'vmovl', 32, 1, 'd0')),
+    # vmovl.s8 q15, d31 -- high registers with source/destination overlap
+    ('A', b'\x3f\xea\xc8\xf2', vector_unary_intrinsic_expected('q15', 'vmovl', 8, 0, 'd31')),
+    ('T', b'\xc8\xef\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 8, 0, 'd31')),
+    # vmovl.u8 q15, d31
+    ('A', b'\x3f\xea\xc8\xf3', vector_unary_intrinsic_expected('q15', 'vmovl', 8, 1, 'd31')),
+    ('T', b'\xc8\xff\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 8, 1, 'd31')),
+    # vmovl.s16 q15, d31
+    ('A', b'\x3f\xea\xd0\xf2', vector_unary_intrinsic_expected('q15', 'vmovl', 16, 0, 'd31')),
+    ('T', b'\xd0\xef\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 16, 0, 'd31')),
+    # vmovl.u16 q15, d31
+    ('A', b'\x3f\xea\xd0\xf3', vector_unary_intrinsic_expected('q15', 'vmovl', 16, 1, 'd31')),
+    ('T', b'\xd0\xff\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 16, 1, 'd31')),
+    # vmovl.s32 q15, d31
+    ('A', b'\x3f\xea\xe0\xf2', vector_unary_intrinsic_expected('q15', 'vmovl', 32, 0, 'd31')),
+    ('T', b'\xe0\xef\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 32, 0, 'd31')),
+    # vmovl.u32 q15, d31
+    ('A', b'\x3f\xea\xe0\xf3', vector_unary_intrinsic_expected('q15', 'vmovl', 32, 1, 'd31')),
+    ('T', b'\xe0\xff\x3f\xea', vector_unary_intrinsic_expected('q15', 'vmovl', 32, 1, 'd31')),
+    # vmovl.s8 q0, d0 -- source is the low half of the destination
+    ('A', b'\x10\x0a\x88\xf2', vector_unary_intrinsic_expected('q0', 'vmovl', 8, 0, 'd0')),
+    ('T', b'\x88\xef\x10\x0a', vector_unary_intrinsic_expected('q0', 'vmovl', 8, 0, 'd0')),
+    # vmovl.u16 q0, d1 -- source is the high half of the destination
+    ('A', b'\x11\x0a\x90\xf3', vector_unary_intrinsic_expected('q0', 'vmovl', 16, 1, 'd1')),
+    ('T', b'\x90\xff\x11\x0a', vector_unary_intrinsic_expected('q0', 'vmovl', 16, 1, 'd1')),
+    # vmovl.s32 q8, d16
+    ('A', b'\x30\x0a\xe0\xf2', vector_unary_intrinsic_expected('q8', 'vmovl', 32, 0, 'd16')),
+    ('T', b'\xe0\xef\x30\x0a', vector_unary_intrinsic_expected('q8', 'vmovl', 32, 0, 'd16')),
+    # vmovl.u32 q8, d17
+    ('A', b'\x31\x0a\xe0\xf3', vector_unary_intrinsic_expected('q8', 'vmovl', 32, 1, 'd17')),
+    ('T', b'\xe0\xff\x31\x0a', vector_unary_intrinsic_expected('q8', 'vmovl', 32, 1, 'd17')),
+    # it eq; vmovleq.s16 q1, d0
+    ('T', b'\x08\xbf\x90\xef\x10\x2a', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vector_unary_intrinsic_expected('q1', 'vmovl', 16, 0, 'd0') + '; LLIL_GOTO(3)'),
+    # it ne; vmovlne.u32 q15, d31
+    ('T', b'\x18\xbf\xe0\xff\x3f\xea', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vector_unary_intrinsic_expected('q15', 'vmovl', 32, 1, 'd31') + '; LLIL_GOTO(3)'),
+
     # vmov.i32 d16, #0
     ('A', b'\x10\x00\xc0\xf2', 'LLIL_SET_REG.q(d16,LLIL_CONST.q(0x0))'),
     # vmov.i32 q8, #0
@@ -1317,6 +1423,8 @@ info_test_cases = [
 ]
 
 intrinsic_test_cases = [
+    ('__vmovn', [('size', 1), ('source', 16)], [8]),
+    ('__vmovl', [('size', 1), ('is_unsigned', 1), ('source', 8)], [16]),
     ('__vclt', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 8), ('source2', 8)], [8]),
     ('__vclt_q', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 16), ('source2', 16)], [16]),
     ('__vcgt', [('size', 1), ('is_unsigned', 1), ('is_float', 1), ('source1', 8), ('source2', 8)], [8]),

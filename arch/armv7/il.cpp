@@ -947,6 +947,46 @@ static ExprId VectorWideningAdd(LowLevelILFunction& il, Instruction& instr, uint
 		});
 }
 
+static ExprId VectorMoveLong(LowLevelILFunction& il, Instruction& instr)
+{
+	InstructionOperand& dst = instr.operands[0];
+	InstructionOperand& src = instr.operands[1];
+	size_t elementSize = GetDataTypeSize(instr.dataType);
+	if (dst.cls != REG || src.cls != REG || instr.operands[2].cls != NONE
+		|| get_register_size(dst.reg) != 16 || get_register_size(src.reg) != 8
+		|| (elementSize != 1 && elementSize != 2 && elementSize != 4)
+		|| (!IsSignedDataType(instr.dataType) && !IsUnsignedDataType(instr.dataType)))
+		return il.Unimplemented();
+
+	return il.Intrinsic(
+		{ RegisterOrFlag::Register(dst.reg) },
+		ARMV7_INTRIN_VMOVL,
+		{
+			il.Const(1, elementSize * 8),
+			il.Const(1, IsUnsignedDataType(instr.dataType) ? 1 : 0),
+			il.Register(8, src.reg),
+		});
+}
+
+static ExprId VectorMoveNarrow(LowLevelILFunction& il, Instruction& instr)
+{
+	InstructionOperand& dst = instr.operands[0];
+	InstructionOperand& src = instr.operands[1];
+	size_t elementSize = GetDataTypeSize(instr.dataType);
+	if (dst.cls != REG || src.cls != REG || instr.operands[2].cls != NONE
+		|| get_register_size(dst.reg) != 8 || get_register_size(src.reg) != 16
+		|| (instr.dataType != DT_I16 && instr.dataType != DT_I32 && instr.dataType != DT_I64))
+		return il.Unimplemented();
+
+	return il.Intrinsic(
+		{ RegisterOrFlag::Register(dst.reg) },
+		ARMV7_INTRIN_VMOVN,
+		{
+			il.Const(1, elementSize * 8),
+			il.Register(16, src.reg),
+		});
+}
+
 static ExprId VectorRoundingAddNarrow(LowLevelILFunction& il, Instruction& instr)
 {
 	InstructionOperand& dst = instr.operands[0];
@@ -5024,6 +5064,12 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 		case ARMV7_VADDW:
 			ConditionExecute(il, instr.cond,
 				VectorWideningAdd(il, instr, ARMV7_INTRIN_VADDW));
+			break;
+		case ARMV7_VMOVL:
+			ConditionExecute(il, instr.cond, VectorMoveLong(il, instr));
+			break;
+		case ARMV7_VMOVN:
+			ConditionExecute(il, instr.cond, VectorMoveNarrow(il, instr));
 			break;
 		case ARMV7_VRADDHN:
 			ConditionExecute(il, instr.cond, VectorRoundingAddNarrow(il, instr));

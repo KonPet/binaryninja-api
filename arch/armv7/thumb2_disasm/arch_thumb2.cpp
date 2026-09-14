@@ -1807,6 +1807,10 @@ public:
 			return "__vshr";
 		case ARMV7_INTRIN_VSHLL:
 			return "__vshll";
+		case ARMV7_INTRIN_VMOVL:
+			return "__vmovl";
+		case ARMV7_INTRIN_VMOVN:
+			return "__vmovn";
 		case ARMV7_INTRIN_VBIF:
 			return "__vbif";
 		case ARMV7_INTRIN_VBIT:
@@ -2137,6 +2141,8 @@ public:
 			ARMV7_INTRIN_VSHL,
 			ARMV7_INTRIN_VSHR,
 			ARMV7_INTRIN_VSHLL,
+			ARMV7_INTRIN_VMOVL,
+			ARMV7_INTRIN_VMOVN,
 			ARMV7_INTRIN_VBIF,
 			ARMV7_INTRIN_VBIT,
 			ARMV7_INTRIN_VBSL,
@@ -2592,6 +2598,17 @@ public:
 				NameAndType("source", Type::IntegerType(8, false)),
 				NameAndType("shift", Type::IntegerType(8, false)),
 			};
+		case ARMV7_INTRIN_VMOVL:
+			return {
+				NameAndType("size", Type::IntegerType(1, false)),
+				NameAndType("is_unsigned", Type::BoolType()),
+				NameAndType("source", Type::IntegerType(8, false)),
+			};
+		case ARMV7_INTRIN_VMOVN:
+			return {
+				NameAndType("size", Type::IntegerType(1, false)),
+				NameAndType("source", Type::IntegerType(16, false)),
+			};
 		case ARMV7_INTRIN_VBIF:
 		case ARMV7_INTRIN_VBIT:
 		case ARMV7_INTRIN_VBSL:
@@ -2909,6 +2926,7 @@ public:
 		case ARMV7_INTRIN_VQRSHRUN:
 		case ARMV7_INTRIN_VQMOVN:
 		case ARMV7_INTRIN_VQMOVUN:
+		case ARMV7_INTRIN_VMOVN:
 		case ARMV7_INTRIN_VMLA:
 		case ARMV7_INTRIN_VMLS:
 		case ARMV7_INTRIN_VMUL:
@@ -2930,6 +2948,7 @@ public:
 		case ARMV7_INTRIN_VMLAL:
 		case ARMV7_INTRIN_VMLSL:
 		case ARMV7_INTRIN_VQDMULL:
+		case ARMV7_INTRIN_VMOVL:
 			return {Type::IntegerType(16, false)};
 		case ARMV7_INTRIN_MSR:
 			// return {Type::IntegerType(4, false)};

@@ -1364,6 +1364,63 @@ static void VectorWideningAdd(LowLevelILFunction& il, decomp_result* instr, uint
 		}));
 }
 
+static void VectorMoveLong(LowLevelILFunction& il, decomp_result* instr)
+{
+	if (instr->format->operandCount != 2 || !IS_FIELD_PRESENT(instr, FIELD_esize)
+		|| !IS_FIELD_PRESENT(instr, FIELD_unsigned))
+	{
+		il.AddInstruction(il.Unimplemented());
+		return;
+	}
+
+	uint32_t dst = GetRegisterOperand(instr, 0);
+	uint32_t src = GetRegisterOperand(instr, 1);
+	size_t elementSize = instr->fields[FIELD_esize];
+	if (dst == REG_INVALID || src == REG_INVALID || GetRegisterSize(instr, 0) != 16
+		|| GetRegisterSize(instr, 1) != 8 || (elementSize != 8 && elementSize != 16 && elementSize != 32))
+	{
+		il.AddInstruction(il.Unimplemented());
+		return;
+	}
+
+	il.AddInstruction(il.Intrinsic(
+		{ RegisterOrFlag::Register(dst) },
+		ARMV7_INTRIN_VMOVL,
+		{
+			il.Const(1, elementSize),
+			il.Const(1, instr->fields[FIELD_unsigned] ? 1 : 0),
+			il.Register(8, src),
+		}));
+}
+
+static void VectorMoveNarrow(LowLevelILFunction& il, decomp_result* instr)
+{
+	if (instr->format->operandCount != 2 || !IS_FIELD_PRESENT(instr, FIELD_esize))
+	{
+		il.AddInstruction(il.Unimplemented());
+		return;
+	}
+
+	uint32_t dst = GetRegisterOperand(instr, 0);
+	uint32_t src = GetRegisterOperand(instr, 1);
+	// The decoder's esize describes the narrowed lanes; the intrinsic takes the source lane size.
+	size_t elementSize = instr->fields[FIELD_esize] * 2;
+	if (dst == REG_INVALID || src == REG_INVALID || GetRegisterSize(instr, 0) != 8
+		|| GetRegisterSize(instr, 1) != 16 || (elementSize != 16 && elementSize != 32 && elementSize != 64))
+	{
+		il.AddInstruction(il.Unimplemented());
+		return;
+	}
+
+	il.AddInstruction(il.Intrinsic(
+		{ RegisterOrFlag::Register(dst) },
+		ARMV7_INTRIN_VMOVN,
+		{
+			il.Const(1, elementSize),
+			il.Register(16, src),
+		}));
+}
+
 static void VectorRoundingAddNarrow(LowLevelILFunction& il, decomp_result* instr)
 {
 	if (!IS_FIELD_PRESENT(instr, FIELD_esize) || instr->format->operandCount < 3)
@@ -4090,6 +4147,12 @@ bool GetLowLevelILForNEONInstruction(Architecture* arch, LowLevelILFunction& il,
 		break;
 	case armv7::ARMV7_VADDW:
 		VectorWideningAdd(il, instr, ARMV7_INTRIN_VADDW);
+		break;
+	case armv7::ARMV7_VMOVL:
+		VectorMoveLong(il, instr);
+		break;
+	case armv7::ARMV7_VMOVN:
+		VectorMoveNarrow(il, instr);
 		break;
 	case armv7::ARMV7_VRADDHN:
 		VectorRoundingAddNarrow(il, instr);
