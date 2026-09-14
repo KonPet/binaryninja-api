@@ -887,7 +887,7 @@ static void VectorShiftRight(LowLevelILFunction& il, decomp_result* instr)
 		}));
 }
 
-static void VectorBitSelect(LowLevelILFunction& il, decomp_result* instr, uint32_t intrinsic)
+static void VectorBitSelect(LowLevelILFunction& il, decomp_result* instr)
 {
 	uint32_t dest = GetRegisterOperand(instr, 0);
 	if (dest == armv7::REG_INVALID || instr->format->operandCount < 3)
@@ -897,20 +897,30 @@ static void VectorBitSelect(LowLevelILFunction& il, decomp_result* instr, uint32
 	}
 
 	size_t regSize = GetRegisterSize(instr, 0);
-	if (regSize == 0)
+	if (regSize != 8 && regSize != 16)
 	{
 		il.AddInstruction(il.Unimplemented());
 		return;
 	}
 
-	il.AddInstruction(il.Intrinsic(
-		{ RegisterOrFlag::Register(dest) },
-		intrinsic,
-		{
-			il.Register(regSize, dest),
-			ReadILOperand(il, instr, 1, regSize),
-			ReadILOperand(il, instr, 2, regSize),
-		}));
+	ExprId destination = il.Register(regSize, dest);
+	ExprId source1 = ReadILOperand(il, instr, 1, regSize);
+	ExprId source2 = ReadILOperand(il, instr, 2, regSize);
+	ExprId setValue = source1;
+	ExprId clearValue = destination;
+	ExprId mask = source2;
+	if (instr->mnem == ARMV7_VBIF)
+	{
+		setValue = destination;
+		clearValue = source1;
+	}
+	else if (instr->mnem == ARMV7_VBSL)
+	{
+		mask = destination;
+		clearValue = source2;
+	}
+	il.AddInstruction(il.SetRegister(regSize, dest,
+		il.Or(regSize, il.And(regSize, setValue, mask), il.And(regSize, clearValue, il.Not(regSize, mask)))));
 }
 
 static void RoundedVectorShift(LowLevelILFunction& il, decomp_result* instr, uint32_t intrinsic)
@@ -4003,13 +4013,9 @@ bool GetLowLevelILForNEONInstruction(Architecture* arch, LowLevelILFunction& il,
 		}
 		break;
 	case armv7::ARMV7_VBIF:
-		VectorBitSelect(il, instr, ARMV7_INTRIN_VBIF);
-		break;
 	case armv7::ARMV7_VBIT:
-		VectorBitSelect(il, instr, ARMV7_INTRIN_VBIT);
-		break;
 	case armv7::ARMV7_VBSL:
-		VectorBitSelect(il, instr, ARMV7_INTRIN_VBSL);
+		VectorBitSelect(il, instr);
 		break;
 	case armv7::ARMV7_VCEQ:
 		VectorCompareEqual(il, instr);
@@ -4024,6 +4030,38 @@ bool GetLowLevelILForNEONInstruction(Architecture* arch, LowLevelILFunction& il,
 		il.AddInstruction(WriteArithOperand(
 			il, instr, il.And(GetRegisterSize(instr, 0), ReadILOperand(il, instr, 1), ReadILOperand(il, instr, 2))));
 		break;
+	case armv7::ARMV7_VBIC:
+	{
+		size_t size = GetRegisterSize(instr, 0);
+		ExprId source, mask;
+		if (instr->format->operandCount == 2 && instr->format->operands[1].type == OPERAND_FORMAT_IMM64)
+		{
+			// The decoder stores the element immediate for display; replicate it across 64 bits.
+			uint64_t imm64 = instr->fields[FIELD_imm64l];
+			if (instr->fields[FIELD_dt] == VFP_DATA_SIZE_I16)
+				imm64 |= imm64 << 16;
+			imm64 |= imm64 << 32;
+			source = ReadILOperand(il, instr, 0);
+			mask = il.Const(8, imm64);
+			if (size == 16)
+			{
+				mask = il.ZeroExtend(16, mask);
+				mask = il.Or(16, mask, il.ShiftLeft(16, mask, il.Const(1, 64)));
+			}
+		}
+		else if (instr->format->operandCount == 3)
+		{
+			source = ReadILOperand(il, instr, 1);
+			mask = ReadILOperand(il, instr, 2);
+		}
+		else
+		{
+			il.AddInstruction(il.Unimplemented());
+			break;
+		}
+		il.AddInstruction(WriteILOperand(il, instr, 0, il.And(size, source, il.Not(size, mask))));
+		break;
+	}
 	case armv7::ARMV7_VEOR:
 		il.AddInstruction(WriteArithOperand(
 			il, instr, il.Xor(GetRegisterSize(instr, 0), ReadILOperand(il, instr, 1), ReadILOperand(il, instr, 2))));

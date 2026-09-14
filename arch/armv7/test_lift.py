@@ -37,6 +37,31 @@ def vmlal_expected(size, unsigned):
         'LLIL_REG.o(q8),LLIL_REG.q(d0),LLIL_REG.q(d1),LLIL_CONST.b(0xFF)])'
     )
 
+def vector_bit_clear_immediate_expected(dst, imm64):
+    size = 'o' if dst.startswith('q') else 'q'
+    mask = f'LLIL_CONST.q(0x{imm64:X})'
+    if size == 'o':
+        wide_mask = f'LLIL_ZX.o({mask})'
+        mask = f'LLIL_OR.o({wide_mask},LLIL_LSL.o({wide_mask},LLIL_CONST.b(0x40)))'
+    return f'LLIL_SET_REG.{size}({dst},LLIL_AND.{size}(LLIL_REG.{size}({dst}),LLIL_NOT.{size}({mask})))'
+
+def vector_bit_select_expected(dst, set_value, clear_value, mask):
+    size = 'o' if dst.startswith('q') else 'q'
+    return (
+        f'LLIL_SET_REG.{size}({dst},LLIL_OR.{size}('
+        f'LLIL_AND.{size}(LLIL_REG.{size}({set_value}),LLIL_REG.{size}({mask})),'
+        f'LLIL_AND.{size}(LLIL_REG.{size}({clear_value}),LLIL_NOT.{size}(LLIL_REG.{size}({mask})))))'
+    )
+
+def vbif_expected(dst, src, mask):
+    return vector_bit_select_expected(dst, dst, src, mask)
+
+def vbit_expected(dst, src, mask):
+    return vector_bit_select_expected(dst, src, dst, mask)
+
+def vbsl_expected(dst, src1, src2):
+    return vector_bit_select_expected(dst, src1, src2, dst)
+
 test_cases = \
 [
     # Post-Indexed addressing (normal)
@@ -436,6 +461,169 @@ test_cases = \
     ('T', b'\xff\xff\x01\x0c', 'LLIL_INTRINSIC([d16],__vdup,[LLIL_CONST.b(0x8),LLIL_REG.q(d1),LLIL_CONST.b(0x7)])'),
     # vorr d8, d17, d16
     ('A', b'\xb0\x81\x21\xf2', 'LLIL_SET_REG.q(d8,LLIL_OR.q(LLIL_REG.q(d17),LLIL_REG.q(d16)))'),
+
+    # VBIC immediate: all six immediate-placement modes, in D and Q registers.
+    # vbic.i32 d0, #0xa5
+    ('A', b'\x35\x01\x82\xf3', vector_bit_clear_immediate_expected('d0', 0x000000A5000000A5)),
+    ('T', b'\x82\xff\x35\x01', vector_bit_clear_immediate_expected('d0', 0x000000A5000000A5)),
+    # vbic.i32 q0, #0xa5
+    ('A', b'\x75\x01\x82\xf3', vector_bit_clear_immediate_expected('q0', 0x000000A5000000A5)),
+    ('T', b'\x82\xff\x75\x01', vector_bit_clear_immediate_expected('q0', 0x000000A5000000A5)),
+    # vbic.i32 d16, #0xa500
+    ('A', b'\x35\x03\xc2\xf3', vector_bit_clear_immediate_expected('d16', 0x0000A5000000A500)),
+    ('T', b'\xc2\xff\x35\x03', vector_bit_clear_immediate_expected('d16', 0x0000A5000000A500)),
+    # vbic.i32 q8, #0xa500
+    ('A', b'\x75\x03\xc2\xf3', vector_bit_clear_immediate_expected('q8', 0x0000A5000000A500)),
+    ('T', b'\xc2\xff\x75\x03', vector_bit_clear_immediate_expected('q8', 0x0000A5000000A500)),
+    # vbic.i32 d7, #0xa50000
+    ('A', b'\x35\x75\x82\xf3', vector_bit_clear_immediate_expected('d7', 0x00A5000000A50000)),
+    ('T', b'\x82\xff\x35\x75', vector_bit_clear_immediate_expected('d7', 0x00A5000000A50000)),
+    # vbic.i32 q3, #0xa50000
+    ('A', b'\x75\x65\x82\xf3', vector_bit_clear_immediate_expected('q3', 0x00A5000000A50000)),
+    ('T', b'\x82\xff\x75\x65', vector_bit_clear_immediate_expected('q3', 0x00A5000000A50000)),
+    # vbic.i32 d31, #0xa5000000
+    ('A', b'\x35\xf7\xc2\xf3', vector_bit_clear_immediate_expected('d31', 0xA5000000A5000000)),
+    ('T', b'\xc2\xff\x35\xf7', vector_bit_clear_immediate_expected('d31', 0xA5000000A5000000)),
+    # vbic.i32 q15, #0xa5000000 -- replicate into the high half without sign extension
+    ('A', b'\x75\xe7\xc2\xf3', vector_bit_clear_immediate_expected('q15', 0xA5000000A5000000)),
+    ('T', b'\xc2\xff\x75\xe7', vector_bit_clear_immediate_expected('q15', 0xA5000000A5000000)),
+    # vbic.i16 d0, #0xa5
+    ('A', b'\x35\x09\x82\xf3', vector_bit_clear_immediate_expected('d0', 0x00A500A500A500A5)),
+    ('T', b'\x82\xff\x35\x09', vector_bit_clear_immediate_expected('d0', 0x00A500A500A500A5)),
+    # vbic.i16 q0, #0xa5
+    ('A', b'\x75\x09\x82\xf3', vector_bit_clear_immediate_expected('q0', 0x00A500A500A500A5)),
+    ('T', b'\x82\xff\x75\x09', vector_bit_clear_immediate_expected('q0', 0x00A500A500A500A5)),
+    # vbic.i16 d16, #0xa500 -- element size is independent of the high register bit
+    ('A', b'\x35\x0b\xc2\xf3', vector_bit_clear_immediate_expected('d16', 0xA500A500A500A500)),
+    ('T', b'\xc2\xff\x35\x0b', vector_bit_clear_immediate_expected('d16', 0xA500A500A500A500)),
+    # vbic.i16 q8, #0xa500
+    ('A', b'\x75\x0b\xc2\xf3', vector_bit_clear_immediate_expected('q8', 0xA500A500A500A500)),
+    ('T', b'\xc2\xff\x75\x0b', vector_bit_clear_immediate_expected('q8', 0xA500A500A500A500)),
+    # vbic.i32 d0, #0 -- a zero mask preserves the destination
+    ('A', b'\x30\x01\x80\xf2', vector_bit_clear_immediate_expected('d0', 0)),
+    ('T', b'\x80\xef\x30\x01', vector_bit_clear_immediate_expected('d0', 0)),
+    # vbic.i16 q15, #0
+    ('A', b'\x70\xe9\xc0\xf2', vector_bit_clear_immediate_expected('q15', 0)),
+    ('T', b'\xc0\xef\x70\xe9', vector_bit_clear_immediate_expected('q15', 0)),
+    # vbic d8, d17, d16 -- register sources are distinct from the destination
+    ('A', b'\xb0\x81\x11\xf2', 'LLIL_SET_REG.q(d8,LLIL_AND.q(LLIL_REG.q(d17),LLIL_NOT.q(LLIL_REG.q(d16))))'),
+    ('T', b'\x11\xef\xb0\x81', 'LLIL_SET_REG.q(d8,LLIL_AND.q(LLIL_REG.q(d17),LLIL_NOT.q(LLIL_REG.q(d16))))'),
+    # vbic q15, q8, q7
+    ('A', b'\xde\xe1\x50\xf2', 'LLIL_SET_REG.o(q15,LLIL_AND.o(LLIL_REG.o(q8),LLIL_NOT.o(LLIL_REG.o(q7))))'),
+    ('T', b'\x50\xef\xde\xe1', 'LLIL_SET_REG.o(q15,LLIL_AND.o(LLIL_REG.o(q8),LLIL_NOT.o(LLIL_REG.o(q7))))'),
+    # it eq; vbiceq.i16 q8, #0xa500
+    ('T', b'\x08\xbf\xc2\xff\x75\x0b', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vector_bit_clear_immediate_expected('q8', 0xA500A500A500A500) + '; LLIL_GOTO(3)'),
+    # it ne; vbicne d8, d17, d16
+    ('T', b'\x18\xbf\x11\xef\xb0\x81', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); LLIL_SET_REG.q(d8,LLIL_AND.q(LLIL_REG.q(d17),LLIL_NOT.q(LLIL_REG.q(d16)))); LLIL_GOTO(3)'),
+
+    # VBIF preserves destination bits selected by the mask and inserts source bits where it is zero.
+    # vbif d0, d1, d2
+    ('A', b'\x12\x01\x31\xf3', vbif_expected('d0', 'd1', 'd2')),
+    ('T', b'\x31\xff\x12\x01', vbif_expected('d0', 'd1', 'd2')),
+    # vbif d31, d16, d30
+    ('A', b'\xbe\xf1\x70\xf3', vbif_expected('d31', 'd16', 'd30')),
+    ('T', b'\x70\xff\xbe\xf1', vbif_expected('d31', 'd16', 'd30')),
+    # vbif q0, q1, q2
+    ('A', b'\x54\x01\x32\xf3', vbif_expected('q0', 'q1', 'q2')),
+    ('T', b'\x32\xff\x54\x01', vbif_expected('q0', 'q1', 'q2')),
+    # vbif q15, q8, q14 -- all 128 bits participate in the selection
+    ('A', b'\xfc\xe1\x70\xf3', vbif_expected('q15', 'q8', 'q14')),
+    ('T', b'\x70\xff\xfc\xe1', vbif_expected('q15', 'q8', 'q14')),
+    # vbif d0, d0, d2 -- source aliases the destination
+    ('A', b'\x12\x01\x30\xf3', vbif_expected('d0', 'd0', 'd2')),
+    ('T', b'\x30\xff\x12\x01', vbif_expected('d0', 'd0', 'd2')),
+    # vbif q0, q0, q2
+    ('A', b'\x54\x01\x30\xf3', vbif_expected('q0', 'q0', 'q2')),
+    ('T', b'\x30\xff\x54\x01', vbif_expected('q0', 'q0', 'q2')),
+    # vbif d0, d1, d0 -- the original destination is also the mask
+    ('A', b'\x10\x01\x31\xf3', vbif_expected('d0', 'd1', 'd0')),
+    ('T', b'\x31\xff\x10\x01', vbif_expected('d0', 'd1', 'd0')),
+    # vbif q0, q1, q0
+    ('A', b'\x50\x01\x32\xf3', vbif_expected('q0', 'q1', 'q0')),
+    ('T', b'\x32\xff\x50\x01', vbif_expected('q0', 'q1', 'q0')),
+    # vbif d0, d1, d1 -- source and mask alias
+    ('A', b'\x11\x01\x31\xf3', vbif_expected('d0', 'd1', 'd1')),
+    ('T', b'\x31\xff\x11\x01', vbif_expected('d0', 'd1', 'd1')),
+    # vbif q0, q1, q1
+    ('A', b'\x52\x01\x32\xf3', vbif_expected('q0', 'q1', 'q1')),
+    ('T', b'\x32\xff\x52\x01', vbif_expected('q0', 'q1', 'q1')),
+    # it eq; vbifeq d31, d16, d30
+    ('T', b'\x08\xbf\x70\xff\xbe\xf1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vbif_expected('d31', 'd16', 'd30') + '; LLIL_GOTO(3)'),
+    # it ne; vbifne q15, q8, q14
+    ('T', b'\x18\xbf\x70\xff\xfc\xe1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vbif_expected('q15', 'q8', 'q14') + '; LLIL_GOTO(3)'),
+
+    # VBIT inserts source bits where the third operand is 1 and preserves destination bits elsewhere.
+    # vbit d0, d1, d2
+    ('A', b'\x12\x01\x21\xf3', vbit_expected('d0', 'd1', 'd2')),
+    ('T', b'\x21\xff\x12\x01', vbit_expected('d0', 'd1', 'd2')),
+    # vbit d31, d16, d30
+    ('A', b'\xbe\xf1\x60\xf3', vbit_expected('d31', 'd16', 'd30')),
+    ('T', b'\x60\xff\xbe\xf1', vbit_expected('d31', 'd16', 'd30')),
+    # vbit q0, q1, q2
+    ('A', b'\x54\x01\x22\xf3', vbit_expected('q0', 'q1', 'q2')),
+    ('T', b'\x22\xff\x54\x01', vbit_expected('q0', 'q1', 'q2')),
+    # vbit q15, q8, q14 -- full-width selection in high Q registers
+    ('A', b'\xfc\xe1\x60\xf3', vbit_expected('q15', 'q8', 'q14')),
+    ('T', b'\x60\xff\xfc\xe1', vbit_expected('q15', 'q8', 'q14')),
+    # vbit d0, d0, d2 -- source aliases the destination
+    ('A', b'\x12\x01\x20\xf3', vbit_expected('d0', 'd0', 'd2')),
+    ('T', b'\x20\xff\x12\x01', vbit_expected('d0', 'd0', 'd2')),
+    # vbit q0, q0, q2
+    ('A', b'\x54\x01\x20\xf3', vbit_expected('q0', 'q0', 'q2')),
+    ('T', b'\x20\xff\x54\x01', vbit_expected('q0', 'q0', 'q2')),
+    # vbit d0, d1, d0 -- the original destination is also the mask
+    ('A', b'\x10\x01\x21\xf3', vbit_expected('d0', 'd1', 'd0')),
+    ('T', b'\x21\xff\x10\x01', vbit_expected('d0', 'd1', 'd0')),
+    # vbit q0, q1, q0
+    ('A', b'\x50\x01\x22\xf3', vbit_expected('q0', 'q1', 'q0')),
+    ('T', b'\x22\xff\x50\x01', vbit_expected('q0', 'q1', 'q0')),
+    # vbit d0, d1, d1 -- source and mask alias
+    ('A', b'\x11\x01\x21\xf3', vbit_expected('d0', 'd1', 'd1')),
+    ('T', b'\x21\xff\x11\x01', vbit_expected('d0', 'd1', 'd1')),
+    # vbit q0, q1, q1
+    ('A', b'\x52\x01\x22\xf3', vbit_expected('q0', 'q1', 'q1')),
+    ('T', b'\x22\xff\x52\x01', vbit_expected('q0', 'q1', 'q1')),
+    # it eq; vbiteq d31, d16, d30
+    ('T', b'\x08\xbf\x60\xff\xbe\xf1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vbit_expected('d31', 'd16', 'd30') + '; LLIL_GOTO(3)'),
+    # it ne; vbitne q15, q8, q14
+    ('T', b'\x18\xbf\x60\xff\xfc\xe1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vbit_expected('q15', 'q8', 'q14') + '; LLIL_GOTO(3)'),
+
+    # VBSL uses the original destination as the mask, selecting source1 for 1 and source2 for 0.
+    # vbsl d0, d1, d2
+    ('A', b'\x12\x01\x11\xf3', vbsl_expected('d0', 'd1', 'd2')),
+    ('T', b'\x11\xff\x12\x01', vbsl_expected('d0', 'd1', 'd2')),
+    # vbsl d31, d16, d30
+    ('A', b'\xbe\xf1\x50\xf3', vbsl_expected('d31', 'd16', 'd30')),
+    ('T', b'\x50\xff\xbe\xf1', vbsl_expected('d31', 'd16', 'd30')),
+    # vbsl q0, q1, q2
+    ('A', b'\x54\x01\x12\xf3', vbsl_expected('q0', 'q1', 'q2')),
+    ('T', b'\x12\xff\x54\x01', vbsl_expected('q0', 'q1', 'q2')),
+    # vbsl q15, q8, q14 -- full-width selection in high Q registers
+    ('A', b'\xfc\xe1\x50\xf3', vbsl_expected('q15', 'q8', 'q14')),
+    ('T', b'\x50\xff\xfc\xe1', vbsl_expected('q15', 'q8', 'q14')),
+    # vbsl d0, d0, d2 -- source1 aliases the destination/mask
+    ('A', b'\x12\x01\x10\xf3', vbsl_expected('d0', 'd0', 'd2')),
+    ('T', b'\x10\xff\x12\x01', vbsl_expected('d0', 'd0', 'd2')),
+    # vbsl q0, q0, q2
+    ('A', b'\x54\x01\x10\xf3', vbsl_expected('q0', 'q0', 'q2')),
+    ('T', b'\x10\xff\x54\x01', vbsl_expected('q0', 'q0', 'q2')),
+    # vbsl d0, d1, d0 -- source2 aliases the destination/mask
+    ('A', b'\x10\x01\x11\xf3', vbsl_expected('d0', 'd1', 'd0')),
+    ('T', b'\x11\xff\x10\x01', vbsl_expected('d0', 'd1', 'd0')),
+    # vbsl q0, q1, q0
+    ('A', b'\x50\x01\x12\xf3', vbsl_expected('q0', 'q1', 'q0')),
+    ('T', b'\x12\xff\x50\x01', vbsl_expected('q0', 'q1', 'q0')),
+    # vbsl d0, d1, d1 -- both sources are identical
+    ('A', b'\x11\x01\x11\xf3', vbsl_expected('d0', 'd1', 'd1')),
+    ('T', b'\x11\xff\x11\x01', vbsl_expected('d0', 'd1', 'd1')),
+    # vbsl q0, q1, q1
+    ('A', b'\x52\x01\x12\xf3', vbsl_expected('q0', 'q1', 'q1')),
+    ('T', b'\x12\xff\x52\x01', vbsl_expected('q0', 'q1', 'q1')),
+    # it eq; vbsleq d31, d16, d30
+    ('T', b'\x08\xbf\x50\xff\xbe\xf1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_E,None),1,3); ' + vbsl_expected('d31', 'd16', 'd30') + '; LLIL_GOTO(3)'),
+    # it ne; vbslne q15, q8, q14
+    ('T', b'\x18\xbf\x50\xff\xfc\xe1', 'LLIL_IF(LLIL_FLAG_COND(LowLevelILFlagCondition.LLFC_NE,None),1,3); ' + vbsl_expected('q15', 'q8', 'q14') + '; LLIL_GOTO(3)'),
+
     # vand d0, d16, d6
     ('T', b'\x00\xef\x96\x01', 'LLIL_SET_REG.q(d0,LLIL_AND.q(LLIL_REG.q(d16),LLIL_REG.q(d6)))'),
     # vshr.u64 d16, d16, #0x20

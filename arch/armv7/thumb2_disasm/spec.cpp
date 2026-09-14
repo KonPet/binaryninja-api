@@ -31719,7 +31719,7 @@ int vand(struct decomp_request *req, struct decomp_result *res)
 	return undefined(req, res);
 }
 
-// gen_crc: A489C601
+// gen_crc: DA4A2203
 int vbic_immediate(struct decomp_request *req, struct decomp_result *res)
 {
 	int rc = -1;
@@ -31819,9 +31819,15 @@ int vbic_immediate(struct decomp_request *req, struct decomp_result *res)
 			/* pcode: fmt_idx = (Q == '1') */
 			res->fields[FIELD_fmt_idx] = ((res->fields[FIELD_Q]) == (0x1));
 			res->fields_mask[FIELD_fmt_idx >> 6] |= 1LL << (FIELD_fmt_idx & 63);
-			/* pcode: dt = (D == '1') + 1 */
-			res->fields[FIELD_dt] = (((res->fields[FIELD_D]) == (0x1))) + (1);
-			res->fields_mask[FIELD_dt >> 6] |= 1LL << (FIELD_dt & 63);
+			/* pcode: dt = if cmode<3> == '1' then 1 else 2 */
+			if((((res->fields[FIELD_cmode] >> 3) & 1)) == (0x1)) {
+				res->fields[FIELD_dt] = 1;
+				res->fields_mask[FIELD_dt >> 6] |= 1LL << (FIELD_dt & 63);
+			}
+			else {
+				res->fields[FIELD_dt] = 2;
+				res->fields_mask[FIELD_dt >> 6] |= 1LL << (FIELD_dt & 63);
+			}
 
 			return success();
 		} /* ENDS if(<encoding_match_test>) ... */

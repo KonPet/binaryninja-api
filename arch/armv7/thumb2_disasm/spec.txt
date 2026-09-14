@@ -3381,7 +3381,7 @@ imm64h = AdvSIMDExpandImm('1', cmode, i:imm3:imm4, 0);
 d = UInt(D:Vd);  regs = if Q == '0' then 1 else 2;
 iword = TRUE;
 fmt_idx = (Q == '1');
-dt = (D == '1') + 1;
+dt = if cmode<3> == '1' then 1 else 2;
 pcode_end
 
 vorn_register:

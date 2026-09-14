@@ -4777,6 +4777,72 @@ bool GetLowLevelILForArmInstruction(Architecture* arch, uint64_t addr, LowLevelI
 						il.Register(get_register_size(op3.reg), op3.reg)),
 					flagOperation[instr.setsFlags]));
 			break;
+		case ARMV7_VBIC:
+		{
+			size_t size = get_register_size(op1.reg);
+			if (op1.cls != REG || (size != 8 && size != 16))
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
+				break;
+			}
+
+			ExprId source, mask;
+			if (op2.cls == IMM && op3.cls == NONE)
+			{
+				source = il.Register(size, op1.reg);
+				mask = il.Const(8, op2.imm64);
+				if (size == 16)
+				{
+					mask = il.ZeroExtend(16, mask);
+					mask = il.Or(16, mask, il.ShiftLeft(16, mask, il.Const(1, 64)));
+				}
+			}
+			else if (op2.cls == REG && op3.cls == REG)
+			{
+				source = il.Register(size, op2.reg);
+				mask = il.Register(size, op3.reg);
+			}
+			else
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
+				break;
+			}
+			ConditionExecute(il, instr.cond,
+				il.SetRegister(size, op1.reg, il.And(size, source, il.Not(size, mask))));
+			break;
+		}
+		case ARMV7_VBIF:
+		case ARMV7_VBIT:
+		case ARMV7_VBSL:
+		{
+			size_t size = get_register_size(op1.reg);
+			if (op1.cls != REG || op2.cls != REG || op3.cls != REG || (size != 8 && size != 16))
+			{
+				ConditionExecute(il, instr.cond, il.Unimplemented());
+				break;
+			}
+
+			ExprId destination = il.Register(size, op1.reg);
+			ExprId source1 = il.Register(size, op2.reg);
+			ExprId source2 = il.Register(size, op3.reg);
+			ExprId setValue = source1;
+			ExprId clearValue = destination;
+			ExprId mask = source2;
+			if (instr.operation == ARMV7_VBIF)
+			{
+				setValue = destination;
+				clearValue = source1;
+			}
+			else if (instr.operation == ARMV7_VBSL)
+			{
+				mask = destination;
+				clearValue = source2;
+			}
+			ConditionExecute(il, instr.cond,
+				il.SetRegister(size, op1.reg,
+					il.Or(size, il.And(size, setValue, mask), il.And(size, clearValue, il.Not(size, mask)))));
+			break;
+		}
 		case ARMV7_VORR:
 			if (op1.cls != REG || op2.cls != REG || op3.cls != REG)
 			{
